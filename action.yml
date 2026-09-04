@@ -1,0 +1,21 @@
+name: 'textconvert refcheck'
+description: 'Catch dangling @mentions and issue/PR/file references in a PR or issue body'
+author: 'Nicolas Alkhoury'
+
+inputs:
+  github-token:
+    description: 'Token used to read the PR/issue body and post the summary comment.'
+    default: ${{ github.token }}
+    required: false
+  fail-on-violation:
+    description: 'Fail the check when a dangling reference is found, instead of only commenting.'
+    default: 'false'
+    required: false
+
+runs:
+  using: 'node22'
+  main: 'dist/index.js'
+
+branding:
+  icon: 'link-2'
+  color: 'blue'
