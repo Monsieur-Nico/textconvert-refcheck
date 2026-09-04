@@ -91,7 +91,16 @@ export function findShorthandReferences(text: string): IssueReference[] {
         number,
       });
     } else if (i === 0 || !wordChars.has(text[i - 1])) {
-      references.push({ raw: text.slice(i, end), owner: null, repo: null, number });
+      // Skip a bare reference that's already the visible label of an
+      // existing link (`<a href="...">#123</a>` or `[#123](...)`) --
+      // something else is already the real destination, so treating it
+      // as a second, independent same-repo reference is often wrong.
+      // Concretely: Dependabot's changelog links render as bare `#1574`
+      // text whose href points at a completely different repository.
+      const isLinkLabel = text[end] === ']' || text.slice(end, end + 4) === '</a>';
+      if (!isLinkLabel) {
+        references.push({ raw: text.slice(i, end), owner: null, repo: null, number });
+      }
     }
 
     i = end - 1;
