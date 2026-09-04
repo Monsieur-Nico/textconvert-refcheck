@@ -15,10 +15,23 @@
     "all": "npm run format && npm run lint:fix && npm run typecheck && npm test && npm run build"
   },
   "license": "MIT",
+  "author": "Nicolas Alkhoury",
+  "homepage": "https://github.com/marketplace/actions/textconvert-refcheck",
+  "bugs": {
+    "url": "https://github.com/Monsieur-Nico/textconvert-refcheck/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Monsieur-Nico/textconvert-refcheck.git"
   },
+  "keywords": [
+    "github-actions",
+    "github-action",
+    "code-quality",
+    "code-review",
+    "pull-requests",
+    "typescript"
+  ],
   "dependencies": {
     "@actions/core": "^2.0.3",
     "@actions/github": "^8.0.1",
