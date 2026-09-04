@@ -46,6 +46,19 @@ export function findMentionCandidates(text: string): string[] {
       continue;
     }
 
+    // `@owner/team` is GitHub's own syntax for mentioning a *team*, not a
+    // user -- a fundamentally different reference this action doesn't
+    // validate (it checks individual collaborators, not team membership).
+    // The same shape is also just how npm scoped package names look
+    // (`@vercel/ncc`, `@actions/core`), which show up constantly in this
+    // kind of PR body. Either way, treating the text before the `/` as a
+    // lone user mention is wrong, so skip it entirely rather than flag an
+    // org/scope name for not being a real user.
+    if (text[end] === '/') {
+      i = end - 1;
+      continue;
+    }
+
     let matchEnd = end;
     if (text.slice(end, end + BOT_SUFFIX.length) === BOT_SUFFIX) {
       matchEnd = end + BOT_SUFFIX.length;

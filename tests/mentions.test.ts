@@ -53,6 +53,21 @@ describe('#findMentionCandidates', () => {
     expect(findMentionCandidates(`@${maxLength}`)).toEqual([`@${maxLength}`]);
   });
 
+  it('does not treat an npm scoped package name as a mention', () => {
+    expect(findMentionCandidates('bump @vercel/ncc from 0.38.4 to 0.45.0')).toEqual([]);
+    expect(
+      findMentionCandidates('chore(deps-dev): bump @types/node from 22.20.1 to 26.4.0'),
+    ).toEqual([]);
+  });
+
+  it('does not treat a GitHub team mention (@org/team) as a user mention', () => {
+    expect(findMentionCandidates('cc @some-org/some-team for visibility')).toEqual([]);
+  });
+
+  it('still finds a real mention elsewhere in text containing a scoped package name', () => {
+    expect(findMentionCandidates('@jordan can you update @vercel/ncc?')).toEqual(['@jordan']);
+  });
+
   it('returns an empty array when there are no mentions', () => {
     expect(findMentionCandidates('no mentions here')).toEqual([]);
   });

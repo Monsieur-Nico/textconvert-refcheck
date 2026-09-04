@@ -67,6 +67,16 @@ describe('#validateBody -- mentions', () => {
     await validateBody(octokit, baseCtx, 'no mentions here');
     expect(getCollaboratorLogins).not.toHaveBeenCalled();
   });
+
+  it('does not flag an npm scoped package name as an invalid mention', async () => {
+    const violations = await validateBody(
+      octokit,
+      baseCtx,
+      'chore(deps-dev): bump @vercel/ncc from 0.38.4 to 0.45.0',
+    );
+    expect(violations).toEqual([]);
+    expect(getCollaboratorLogins).not.toHaveBeenCalled();
+  });
 });
 
 describe('#validateBody -- issue/PR references', () => {
