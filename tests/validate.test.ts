@@ -134,3 +134,42 @@ describe('#validateBody -- combined', () => {
     expect(violations.map((v) => v.type)).toEqual(['mention', 'issue-reference', 'file-reference']);
   });
 });
+
+describe('#validateBody -- abuse resistance', () => {
+  it('de-duplicates the same issue reference repeated many times into a single API call', async () => {
+    issueExists.mockResolvedValue(false);
+    const body = Array(200).fill('#234').join(' ');
+
+    const violations = await validateBody(octokit, baseCtx, body);
+
+    expect(issueExists).toHaveBeenCalledTimes(1);
+    expect(violations).toHaveLength(1);
+  });
+
+  it('caps the number of distinct issue references checked per body', async () => {
+    issueExists.mockResolvedValue(false);
+    const body = Array.from({ length: 200 }, (_, i) => `#${i + 1}`).join(' ');
+
+    const violations = await validateBody(octokit, baseCtx, body);
+
+    expect(issueExists).toHaveBeenCalledTimes(50);
+    expect(violations).toHaveLength(50);
+  });
+
+  it('caps the number of distinct file references checked per body', async () => {
+    const ctx = { ...baseCtx, headSha: 'abc123' };
+    const body = Array.from({ length: 200 }, (_, i) => `[x](src/missing-${i}.ts)`).join(' ');
+
+    const violations = await validateBody(octokit, ctx, body);
+
+    expect(violations).toHaveLength(50);
+  });
+
+  it('caps the number of distinct mentions checked per body', async () => {
+    const body = Array.from({ length: 200 }, (_, i) => `@user${i}`).join(' ');
+
+    const violations = await validateBody(octokit, baseCtx, body);
+
+    expect(violations).toHaveLength(50);
+  });
+});

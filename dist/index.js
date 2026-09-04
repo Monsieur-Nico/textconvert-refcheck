@@ -32549,8 +32549,31 @@ function isSameRepo(ctx, owner, repo) {
     const resolvedRepo = (repo ?? ctx.repo).toLowerCase();
     return resolvedOwner === ctx.owner.toLowerCase() && resolvedRepo === ctx.repo.toLowerCase();
 }
+// A hard cap on how many candidates of each type get validated per run,
+// applied after de-duplicating identical ones. For issue/PR and file
+// references this bounds the number of sequential GitHub API calls a
+// single run makes -- without it, a body crafted with many distinct fake
+// references (e.g. thousands of unique #1, #2, #3, ... numbers) would
+// force one API call per reference, a real resource-exhaustion / rate-
+// limit-abuse vector against the repository's own automation, not just a
+// theoretical concern. For mentions (no per-item API cost) it instead
+// bounds the comment body's size, which GitHub itself caps at 65536
+// characters. 50 is far more than any real PR/issue body needs.
+const MAX_CHECKS_PER_BODY = 50;
+function dedupeBy(items, keyOf) {
+    const seen = new Set();
+    const result = [];
+    for (const item of items) {
+        const key = keyOf(item);
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        result.push(item);
+    }
+    return result;
+}
 async function validateMentions(octokit, ctx, body) {
-    const mentions = (0, mentions_1.findMentionCandidates)(body).filter((mention) => !(0, mentions_1.isBotMention)(mention));
+    const mentions = dedupeBy((0, mentions_1.findMentionCandidates)(body).filter((mention) => !(0, mentions_1.isBotMention)(mention)), (mention) => mention.toLowerCase()).slice(0, MAX_CHECKS_PER_BODY);
     if (mentions.length === 0)
         return [];
     const collaborators = await (0, github_1.getCollaboratorLogins)(octokit, ctx);
@@ -32568,7 +32591,7 @@ async function validateIssueReferences(octokit, ctx, body) {
     // reference to a different repo is left alone -- validating it would
     // need API access to a repo that might be private or outside this
     // Action's token permissions.
-    const sameRepoRefs = (0, references_1.findIssueReferences)(body).filter((ref) => isSameRepo(ctx, ref.owner, ref.repo));
+    const sameRepoRefs = dedupeBy((0, references_1.findIssueReferences)(body).filter((ref) => isSameRepo(ctx, ref.owner, ref.repo)), (ref) => String(ref.number)).slice(0, MAX_CHECKS_PER_BODY);
     for (const ref of sameRepoRefs) {
         const exists = await (0, github_1.issueExists)(octokit, ctx.owner, ctx.repo, ref.number);
         if (!exists) {
@@ -32587,7 +32610,7 @@ async function validateFileReferences(octokit, ctx, body) {
     if (!ctx.headSha)
         return [];
     const violations = [];
-    const sameRepoRefs = (0, files_1.findFileReferences)(body).filter((ref) => isSameRepo(ctx, ref.owner, ref.repo));
+    const sameRepoRefs = dedupeBy((0, files_1.findFileReferences)(body).filter((ref) => isSameRepo(ctx, ref.owner, ref.repo)), (ref) => `${ref.path}#${ref.line ?? ''}`).slice(0, MAX_CHECKS_PER_BODY);
     if (sameRepoRefs.length === 0)
         return [];
     const treePaths = await (0, github_1.getRepoTreePaths)(octokit, ctx.owner, ctx.repo, ctx.headSha);
