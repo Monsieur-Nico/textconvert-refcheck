@@ -30,6 +30,32 @@ Closes #234
 - Existing "linked issue" checkers verify a reference is _present_ in a PR body, not that it's _real_ — a typo'd `Closes #234` (when the real issue is `#243`) passes those silently today.
 - File-link checkers that work by fetching URLs over HTTP have a well-documented false-positive problem: a file added in the _same_ PR doesn't exist on the base branch yet, so a naive check 404s on something that's actually fine. Checking directly against the PR's own branch tree via the API sidesteps this cleanly.
 
+## How it works
+
+Given a pull request body like:
+
+```md
+Thanks @jordam for the first pass!
+
+Closes #234
+
+See [the updated types](src/old-name.ts) for context.
+```
+
+`refcheck` posts (or updates) a single comment on the PR:
+
+> ### ⚠️ textconvert refcheck found dangling references
+>
+> - **@mention** `@jordam` — @jordam does not match a collaborator on this repository.
+> - **issue/PR reference** `#234` — #234 does not refer to an existing issue or pull request in this repository.
+> - **file/line reference** `[the updated types](src/old-name.ts)` — [the updated types](src/old-name.ts) does not refer to a file that exists on this PR's branch.
+
+A few things worth knowing about that comment:
+
+- **It's the same comment every time, not a new one per run.** `refcheck` finds its own previous comment (via a hidden marker) and updates it in place — so if a later push fixes `@jordam` → `@jordan`, the comment updates too, rather than an old "violations found" comment sitting stale next to a newer clean one.
+- **It posts even when everything's clean** — a passing run updates the comment to `✅ textconvert refcheck — no dangling references found.`, so the comment always reflects the PR's current state, not just its worst moment.
+- **The check itself doesn't fail by default.** With `fail-on-violation: false` (the default), the workflow run stays green regardless — the comment is purely informational. Set `fail-on-violation: true` to make a run with violations fail the check instead, which blocks merging if that check is marked required in branch protection.
+
 ## Usage
 
 ```yaml
