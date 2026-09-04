@@ -24,6 +24,42 @@ describe('#formatComment', () => {
     expect(body).toContain('does not match a collaborator');
     expect(body).toContain('does not exist');
   });
+
+  it('strips a backtick from raw so it cannot break out of the code span', () => {
+    const violations: Violation[] = [
+      {
+        type: 'file-reference',
+        raw: '[x](src/foo.ts`**FAKE**`)',
+        reason: 'does not exist.',
+      },
+    ];
+
+    const body = formatComment(violations);
+
+    // No backtick anywhere in the rendered line -- specifically, the
+    // opening code-span backtick must be immediately followed by content
+    // with no backtick until the single closing backtick that follows it.
+    const line = body.split('\n').find((l) => l.includes('file/line reference'));
+    expect(line).toBeDefined();
+    expect(line!.match(/`/g)?.length).toBe(2);
+    expect(line).not.toContain('**FAKE**');
+  });
+
+  it('escapes markdown-active characters in reason, which is not code-quoted', () => {
+    const violations: Violation[] = [
+      {
+        type: 'mention',
+        raw: '@jordam',
+        reason: '@jordam_the_**faker** does not match [a collaborator](https://evil.example).',
+      },
+    ];
+
+    const body = formatComment(violations);
+
+    expect(body).toContain('\\_the\\_');
+    expect(body).toContain('\\*\\*faker\\*\\*');
+    expect(body).toContain('\\[a collaborator\\]');
+  });
 });
 
 describe('#upsertComment', () => {

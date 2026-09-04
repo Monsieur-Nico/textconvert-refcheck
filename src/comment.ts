@@ -11,15 +11,38 @@ const VIOLATION_LABELS: Record<Violation['type'], string> = {
   'file-reference': 'file/line reference',
 };
 
+// Violation.raw/reason are built from attacker-controlled PR/issue body
+// text -- some parsers (URL-form references, in particular) allow
+// characters other than the ones a real username/path/issue-number would
+// ever contain. Without this, a crafted value containing a backtick could
+// break out of the `${v.raw}` code span below and inject live markdown
+// into a comment this Action posts with its own credibility (not script
+// execution -- GitHub sanitizes real HTML in comments -- but real content
+// spoofing, e.g. fake bold text or a misleading link dressed up to look
+// like part of the bot's own trusted output).
+//
+// Backticks are stripped outright rather than escaped: escaping a
+// backtick doesn't reliably neutralize it *inside* a span already
+// delimited by backticks, and none of this Action's valid extraction
+// results ever legitimately contain one, so nothing real is lost.
+// Everything else CommonMark treats as inline-formatting syntax is
+// backslash-escaped, since a value used in `reason` isn't inside a code
+// span at all and needs its own protection.
+function escapeMarkdown(value: string): string {
+  return value.replace(/`/g, '').replace(/([*_[\]\\])/g, '\\$1');
+}
+
 /** Formats the summary comment body for a set of violations (empty = all clear). */
 export function formatComment(violations: Violation[]): string {
   if (violations.length === 0) {
     return `${COMMENT_MARKER}\n✅ **textconvert refcheck** — no dangling references found.`;
   }
 
-  const lines = violations.map(
-    (v) => `- **${VIOLATION_LABELS[v.type]}** \`${v.raw}\` — ${v.reason}`,
-  );
+  const lines = violations.map((v) => {
+    const raw = escapeMarkdown(v.raw);
+    const reason = escapeMarkdown(v.reason);
+    return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
+  });
 
   return [
     COMMENT_MARKER,
