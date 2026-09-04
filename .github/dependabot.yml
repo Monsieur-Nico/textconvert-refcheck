@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    ignore:
+      # @actions/core@3.x and @actions/github@9.x dropped CommonJS support
+      # entirely (ESM-only exports field, no "require" condition) -- ncc
+      # can't bundle either at those majors, confirmed directly while
+      # setting this project up. 2.0.3/8.0.1 are the last CJS-compatible
+      # releases of each. Don't let Dependabot repeatedly propose a major
+      # bump that's known to break the build; still get patch/minor
+      # updates within the pinned major.
+      - dependency-name: '@actions/core'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@actions/github'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
