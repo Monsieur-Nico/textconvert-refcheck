@@ -11,6 +11,7 @@ Please **do not** open a public issue for a security vulnerability.
 Instead, use GitHub's private reporting for this repository: go to the [Security tab](https://github.com/Monsieur-Nico/textconvert-refcheck/security/advisories/new) and click "Report a vulnerability". This opens a private advisory visible only to the maintainer until a fix is ready.
 
 Include:
+
 - The version of the action you're using
 - A minimal PR/issue body or workflow config that reproduces the issue
 - What you expected vs. what happened
