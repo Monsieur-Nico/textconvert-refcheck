@@ -33,6 +33,24 @@ describe('#findShorthandReferences', () => {
     expect(findShorthandReferences('foo/bar/baz#1')).toEqual([]);
   });
 
+  it('skips a bare reference that is already the label of an HTML link (e.g. Dependabot changelog links)', () => {
+    const body = '<a href="https://redirect.github.com/other/repo/issues/1574">#1574</a>';
+    expect(findShorthandReferences(body)).toEqual([]);
+  });
+
+  it('skips a bare reference that is already the label of a markdown link', () => {
+    expect(findShorthandReferences('[#123](https://example.com/other-repo/issues/123)')).toEqual(
+      [],
+    );
+  });
+
+  it('still finds a bare reference not wrapped in a link', () => {
+    const body = 'Closes #123, see also <a href="https://x">#456</a>';
+    expect(findShorthandReferences(body)).toEqual([
+      { raw: '#123', owner: null, repo: null, number: 123 },
+    ]);
+  });
+
   it('returns an empty array when there are no references', () => {
     expect(findShorthandReferences('no references here')).toEqual([]);
   });
