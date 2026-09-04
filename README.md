@@ -1,6 +1,12 @@
-# textconvert refcheck
+<!-- markdownlint-disable MD033 -->
 
-<p>
+<p align="center">
+  <img src="media/logo.png" alt="textconvert refcheck logo" width="240" height="240" />
+</p>
+
+<h1 align="center">textconvert refcheck</h1>
+
+<p align="center">
   <a href="https://github.com/marketplace/actions/textconvert-refcheck">
     <img src="https://img.shields.io/badge/marketplace-textconvert%20refcheck-blue?style=flat-square&logo=github" alt="GitHub Marketplace" />
   </a>
