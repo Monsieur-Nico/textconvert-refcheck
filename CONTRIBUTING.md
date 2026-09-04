@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing!
 
+This is a sibling project to [textConvert](https://github.com/Monsieur-Nico/textConvert) -- it doesn't depend on that library directly (see the README's [_Why not just use textConvert directly?_](README.md#why-not-just-use-textconvert-directly)), but its parsers follow the same conventions, and changes here should keep doing so.
+
 ## Getting Started
 
 ```sh

@@ -22,7 +22,7 @@ Closes #234
 [see here](src/old-name.ts)
 ```
 
-`refcheck` catches all three, using [`textconvert`](https://github.com/Monsieur-Nico/textConvert)'s extraction utilities plus the GitHub API to check what's actually real.
+`refcheck` catches all three by checking against the GitHub API for what's actually real. Its parsers are purpose-built for GitHub's own mention and reference syntax, following the same linear-scan, no-regex-backtracking conventions as [`textConvert`](https://github.com/Monsieur-Nico/textConvert) -- the text-extraction library this Action was built alongside (see [_Why not just use textConvert directly?_](#why-not-just-use-textconvert-directly)).
 
 ---
 
@@ -37,6 +37,12 @@ Closes #234
 - Nothing else validates free-text `@mentions` against a repository's actual collaborators — GitHub's own "invalid reviewer" checks only cover the _structured_ reviewer-request field, a different thing from a mention typed in prose.
 - Existing "linked issue" checkers verify a reference is _present_ in a PR body, not that it's _real_ — a typo'd `Closes #234` (when the real issue is `#243`) passes those silently today.
 - File-link checkers that work by fetching URLs over HTTP have a well-documented false-positive problem: a file added in the _same_ PR doesn't exist on the base branch yet, so a naive check 404s on something that's actually fine. Checking directly against the PR's own branch tree via the API sidesteps this cleanly.
+
+### Why not just use textConvert directly?
+
+[`textConvert`](https://github.com/Monsieur-Nico/textConvert) already ships `extractMentions`/`extractHashtags`, but those follow Twitter/Instagram's mention convention (letters, digits, underscore) -- GitHub usernames legitimately contain hyphens (`github-actions`), which those functions would silently truncate at. The two conventions' boundary rules are also directly incompatible in places: `extractHashtags` rejects a `#` immediately preceded by a word character (correctly excluding `C#`), which is exactly what `owner/repo#123` needs to _allow_, since a repo name is a word-character run right before the `#`.
+
+Rather than bend a general-purpose text library around GitHub-specific syntax, `refcheck`'s parsers (`src/mentions.ts`, `src/references.ts`, `src/files.ts`) are purpose-built from scratch, matching GitHub's own linking rules exactly -- while keeping textConvert's underlying conventions (linear character-by-character scans, no regex backtracking, since this all runs against attacker-controlled PR/issue text).
 
 ## How it works
 
@@ -112,6 +118,10 @@ npm run typecheck
 npm run build   # bundles src/main.ts into dist/index.js -- required before committing
                 # any src/ change, since Actions run the committed dist/, not src/
 ```
+
+## Related
+
+- [textConvert](https://github.com/Monsieur-Nico/textConvert) ([npm](https://www.npmjs.com/package/textconvert)) -- the text-extraction/conversion library this Action's parsing conventions are modeled on. See [_Why not just use textConvert directly?_](#why-not-just-use-textconvert-directly) above for why it's a sibling, not a dependency.
 
 ## License
 
