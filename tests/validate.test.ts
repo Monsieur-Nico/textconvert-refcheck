@@ -42,6 +42,16 @@ describe('#validateBody -- mentions', () => {
     ]);
   });
 
+  it('does not flag a mention inside an inline code span (e.g. Dependabot-style command syntax)', async () => {
+    const violations = await validateBody(
+      octokit,
+      baseCtx,
+      'You can trigger a rebase by commenting `@dependabot rebase`.',
+    );
+    expect(violations).toEqual([]);
+    expect(getCollaboratorLogins).not.toHaveBeenCalled();
+  });
+
   it('does not flag a real collaborator, case-insensitively', async () => {
     const violations = await validateBody(octokit, baseCtx, 'cc @Jordan');
     expect(violations).toEqual([]);
@@ -80,6 +90,14 @@ describe('#validateBody -- issue/PR references', () => {
   it('does not validate a cross-repo reference (v1 scope)', async () => {
     issueExists.mockResolvedValue(false);
     const violations = await validateBody(octokit, baseCtx, 'See other/repo#1');
+    expect(violations).toEqual([]);
+    expect(issueExists).not.toHaveBeenCalled();
+  });
+
+  it('does not flag a bare reference that is the label of a link to a different repo (e.g. Dependabot changelog links)', async () => {
+    issueExists.mockResolvedValue(false);
+    const body = '<a href="https://redirect.github.com/other/repo/issues/1574">#1574</a>';
+    const violations = await validateBody(octokit, baseCtx, body);
     expect(violations).toEqual([]);
     expect(issueExists).not.toHaveBeenCalled();
   });

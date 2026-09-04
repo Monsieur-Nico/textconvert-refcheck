@@ -7,6 +7,7 @@ import {
   type Octokit,
   type RepoContext,
 } from './github';
+import { maskCode } from './markdown';
 import { findIssueReferences } from './references';
 import { findMentionCandidates, isBotMention } from './mentions';
 
@@ -151,10 +152,16 @@ export async function validateBody(
   ctx: RepoContext,
   body: string,
 ): Promise<Violation[]> {
+  // Blank out code spans/blocks once, up front, so a markdown code example
+  // showing command or reference syntax (e.g. Dependabot's own PR template
+  // text `` `@dependabot rebase` ``) is never mistaken for something real
+  // by any of the three checks below.
+  const cleaned = maskCode(body);
+
   const [mentionViolations, issueViolations, fileViolations] = await Promise.all([
-    validateMentions(octokit, ctx, body),
-    validateIssueReferences(octokit, ctx, body),
-    validateFileReferences(octokit, ctx, body),
+    validateMentions(octokit, ctx, cleaned),
+    validateIssueReferences(octokit, ctx, cleaned),
+    validateFileReferences(octokit, ctx, cleaned),
   ]);
 
   return [...mentionViolations, ...issueViolations, ...fileViolations];
