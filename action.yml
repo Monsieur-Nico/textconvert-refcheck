@@ -17,5 +17,5 @@ runs:
   main: 'dist/index.js'
 
 branding:
-  icon: 'link'
+  icon: 'feather'
   color: 'blue'
