@@ -15,12 +15,19 @@ npm install
 ## Development Workflow
 
 - **Run tests:** `npm test` (or `npm run test:watch` while iterating)
+- **Coverage:** `npm run coverage`
 - **Lint:** `npm run lint` (or `npm run lint:fix`)
 - **Format:** `npm run format` (or `npm run format:check`)
 - **Typecheck:** `npm run typecheck`
 - **Build:** `npm run build` -- bundles `src/main.ts` into `dist/index.js` via `ncc`
 
 Or run everything at once: `npm run all`.
+
+Running `npm install` also sets up Git hooks (via [Husky](https://typicode.github.io/husky/)):
+
+- **Pre-commit:** Only staged files are linted and formatted automatically.
+- **Pre-push:** Tests are run before every push.
+- **Commit message:** Must follow Conventional Commits (checked automatically).
 
 ### `dist/` must stay in sync with `src/`
 
@@ -40,7 +47,7 @@ When adding or changing anything that touches PR/issue body text (a parser, the 
 
 ## Commit Message Guidelines
 
-This project uses [Conventional Commits](https://www.conventionalcommits.org/):
+This project uses [Conventional Commits](https://www.conventionalcommits.org/), enforced automatically by the commit-msg hook:
 
 ```text
 <type>: <short summary>
@@ -48,10 +55,30 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/):
 
 **Allowed types:** `feat`, `fix`, `refactor`, `docs`, `test`, `chore`.
 
+### How Commit Messages Drive the Version Bump
+
+[release-please](https://github.com/googleapis/release-please) reads commit types on `main` to decide the next version -- this is mechanical (it just parses your commit message), so getting the type right is what actually determines the release:
+
+| Commit type                                       | Version bump                                 |
+| ------------------------------------------------- | -------------------------------------------- |
+| `fix:`                                            | Patch (`1.0.5` → `1.0.6`)                    |
+| `feat:`                                           | Minor (`1.0.5` → `1.1.0`)                    |
+| `feat!:` / `fix!:` or a `BREAKING CHANGE:` footer | Major (`1.0.5` → `2.0.0`)                    |
+| `docs:`, `chore:`, `test:`, `refactor:`           | None -- doesn't trigger a release on its own |
+
+This is entirely up to whoever writes the commit -- nothing checks whether a change is _actually_ breaking, it only trusts what the message says. For this Action, a breaking change means something that changes behavior for an existing consumer without any action on their part -- e.g. removing/renaming an input, changing what counts as a violation, or changing the comment's marker/format in a way that breaks the update-in-place behavior.
+
 ## Proposing Changes
 
 - Open an [issue](https://github.com/Monsieur-Nico/textconvert-refcheck/issues) for bugs or feature requests before a large change, so the approach can be discussed first.
 - Use the PR template and follow the commit message guidelines above.
+
+## Release & Publishing
+
+- Releases are managed automatically by [release-please](https://github.com/googleapis/release-please), driven by Conventional Commits on `main`. There's nothing to run manually.
+- Every push to `main` that contains releasable commits (`feat`, `fix`, etc.) opens or updates a release PR with the version bump and `CHANGELOG.md` entry. Merging that PR creates the GitHub Release and tag.
+- See [_How Commit Messages Drive the Version Bump_](#how-commit-messages-drive-the-version-bump) above for exactly which commit type produces which bump.
+- Consumers pin to a floating major-version tag (e.g. `uses: Monsieur-Nico/textconvert-refcheck@v1`), not an exact release. Once release-please publishes, a follow-up job moves that tag to point at the new release automatically -- there's no manual `git tag -f` step anymore.
 
 ## License
 
