@@ -44,12 +44,21 @@ export function formatComment(violations: Violation[]): string {
     return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
   });
 
-  return [
+  const body = [
     COMMENT_MARKER,
     '### ⚠️ textconvert refcheck found dangling references',
     '',
     ...lines,
-  ].join('\n');
+  ];
+
+  if (violations.some((v) => v.type === 'mention')) {
+    body.push(
+      '',
+      "> If a flagged `@mention` is a typo, fix the username. If it's just prose that isn't meant to tag anyone, wrap it in backticks (e.g. `` `@mentions` ``) and this check will leave it alone next time.",
+    );
+  }
+
+  return body.join('\n');
 }
 
 interface CommentLike {

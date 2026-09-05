@@ -25,6 +25,26 @@ describe('#formatComment', () => {
     expect(body).toContain('does not exist');
   });
 
+  it('appends a backtick hint when a mention is flagged', () => {
+    const violations: Violation[] = [
+      { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },
+    ];
+
+    const body = formatComment(violations);
+
+    expect(body).toContain('wrap it in backticks');
+  });
+
+  it('omits the backtick hint when no mention is flagged', () => {
+    const violations: Violation[] = [
+      { type: 'issue-reference', raw: '#234', reason: '#234 does not exist.' },
+    ];
+
+    const body = formatComment(violations);
+
+    expect(body).not.toContain('wrap it in backticks');
+  });
+
   it('strips a backtick from raw so it cannot break out of the code span', () => {
     const violations: Violation[] = [
       {

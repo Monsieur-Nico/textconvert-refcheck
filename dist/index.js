@@ -32001,12 +32001,11 @@ function formatComment(violations) {
         const reason = escapeMarkdown(v.reason);
         return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
     });
-    return [
-        exports.COMMENT_MARKER,
-        '### ⚠️ textconvert refcheck found dangling references',
-        '',
-        ...lines,
-    ].join('\n');
+    const body = [exports.COMMENT_MARKER, '### ⚠️ textconvert refcheck found dangling references', '', ...lines];
+    if (violations.some((v) => v.type === 'mention')) {
+        body.push('', "> If a flagged `@mention` is a typo, fix the username. If it's just prose that isn't meant to tag anyone, wrap it in backticks (e.g. `` `@mentions` ``) and this check will leave it alone next time.");
+    }
+    return body.join('\n');
 }
 /**
  * Posts `body` as a comment on the PR/issue, updating this Action's own
