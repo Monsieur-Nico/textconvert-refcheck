@@ -5,6 +5,12 @@ import type { Violation } from './validate';
 // it's updated in place instead of posting a new comment on every push.
 export const COMMENT_MARKER = '<!-- textconvert-refcheck -->';
 
+const MARKETPLACE_URL = 'https://github.com/marketplace/actions/textconvert-refcheck';
+const LOGO_URL =
+  'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
+const LOGO_IMG = `<img src="${LOGO_URL}" width="18" height="18" align="absmiddle" alt="" />`;
+const NAME_LINK = `[textconvert refcheck](${MARKETPLACE_URL})`;
+
 const VIOLATION_LABELS: Record<Violation['type'], string> = {
   mention: '@mention',
   'issue-reference': 'issue/PR reference',
@@ -35,7 +41,7 @@ function escapeMarkdown(value: string): string {
 /** Formats the summary comment body for a set of violations (empty = all clear). */
 export function formatComment(violations: Violation[]): string {
   if (violations.length === 0) {
-    return `${COMMENT_MARKER}\n✅ **textconvert refcheck** — no dangling references found.`;
+    return `${COMMENT_MARKER}\n${LOGO_IMG} ✅ **${NAME_LINK}** — no dangling references found.`;
   }
 
   const lines = violations.map((v) => {
@@ -46,7 +52,7 @@ export function formatComment(violations: Violation[]): string {
 
   const body = [
     COMMENT_MARKER,
-    '### ⚠️ textconvert refcheck found dangling references',
+    `### ⚠️ ${LOGO_IMG} ${NAME_LINK} found dangling references`,
     '',
     ...lines,
   ];
