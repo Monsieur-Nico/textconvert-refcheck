@@ -31982,23 +31982,26 @@ const VIOLATION_LABELS = {
 // PNG is 500x500 -- explicit width/height keep it from ever rendering
 // oversized regardless of source resolution).
 const LOGO_SIZE = 44;
-// A compact header card: the project logo next to the linked product
-// name. This is what carries the Action's branding, since it posts as
-// the generic github-actions[bot] identity rather than a custom GitHub
-// App.
+// A header card: the project logo floated left of a heading-sized,
+// linked product name. This is what carries the Action's branding,
+// since it posts as the generic github-actions[bot] identity rather
+// than a custom GitHub App.
+//
+// This deliberately isn't a <table> layout -- GitHub's comment
+// sanitizer strips both the `style` and `border` attributes outright
+// (verified by rendering through the real GitHub markdown API), so a
+// <table> always gets its default bordered-cell styling with no way to
+// suppress it. `align`/`clear` survive sanitization, so a floated
+// image achieves the same side-by-side layout without a visible box.
 function headerCard() {
     return [
-        '<table>',
-        '<tr>',
-        `<td width="${LOGO_SIZE + 10}">`,
-        `<img src="${LOGO_URL}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" alt="textconvert refcheck" />`,
-        '</td>',
-        '<td>',
-        `<strong><a href="${MARKETPLACE_URL}">textconvert refcheck</a></strong><br>`,
-        '<sub>Reference integrity check</sub>',
-        '</td>',
-        '</tr>',
-        '</table>',
+        `<img src="${LOGO_URL}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" align="left" alt="textconvert refcheck" />`,
+        '',
+        `### [textconvert refcheck](${MARKETPLACE_URL})`,
+        '',
+        'Reference integrity check',
+        '',
+        '<br clear="left">',
     ].join('\n');
 }
 // Violation.raw/reason are built from attacker-controlled PR/issue body
