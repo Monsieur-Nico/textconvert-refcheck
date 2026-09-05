@@ -12,7 +12,14 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "prepare": "husky",
     "all": "npm run format && npm run lint:fix && npm run typecheck && npm test && npm run build"
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md}": [
+      "prettier --write",
+      "eslint --fix"
+    ]
   },
   "license": "MIT",
   "author": "Nicolas Alkhoury",
@@ -37,12 +44,16 @@
     "@actions/github": "^8.0.1"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
     "@types/node": "^26.4.0",
     "@typescript-eslint/eslint-plugin": "^8.69.0",
     "@typescript-eslint/parser": "^8.69.0",
     "@vercel/ncc": "^0.45.0",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "vitest": "^5.0.0"
