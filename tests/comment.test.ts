@@ -13,17 +13,20 @@ describe('#formatComment', () => {
 
   it('links the action name to its Marketplace listing as a heading', () => {
     const marketplaceLink =
-      '### [textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck)';
+      '[textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck)';
 
-    expect(formatComment([])).toContain(marketplaceLink);
-    expect(
+    for (const body of [
+      formatComment([]),
       formatComment([
         { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },
       ]),
-    ).toContain(marketplaceLink);
+    ]) {
+      const headingLine = body.split('\n').find((l) => l.includes(marketplaceLink));
+      expect(headingLine?.startsWith('### ')).toBe(true);
+    }
   });
 
-  it('includes the project logo, constrained to 44x44, with no table wrapper', () => {
+  it('includes the project logo inline with the heading, constrained to 44x44, with no table or float', () => {
     const logoUrl =
       'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
 
@@ -35,8 +38,21 @@ describe('#formatComment', () => {
     ]) {
       expect(body).toContain(logoUrl);
       expect(body).toContain('width="44" height="44"');
+      expect(body).toContain('align="absmiddle"');
       expect(body).not.toContain('<table>');
+      expect(body).not.toContain('align="left"');
+      expect(body).not.toContain('clear=');
     }
+  });
+
+  it('puts the subtitle on its own line directly after the heading', () => {
+    const body = formatComment([]);
+    const lines = body.split('\n');
+    const headingIndex = lines.findIndex((l) => l.startsWith('### '));
+
+    expect(headingIndex).toBeGreaterThanOrEqual(0);
+    expect(lines[headingIndex + 1]).toBe('');
+    expect(lines[headingIndex + 2]).toBe('Reference integrity check');
   });
 
   it('uses a warning alert for violations, listing the count directly visible', () => {
