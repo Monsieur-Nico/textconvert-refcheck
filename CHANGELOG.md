@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.4.0...v1.5.0) (2026-09-05)
+
+
+### Features
+
+* bigger, borderless comment header (44px floated logo) ([#15](https://github.com/Monsieur-Nico/textconvert-refcheck/issues/15)) ([53e97b2](https://github.com/Monsieur-Nico/textconvert-refcheck/commit/53e97b284c5a3e9499cfb58bda8cf24e54002cae))
+
 ## [1.4.0](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.3.0...v1.4.0) (2026-09-05)
 
 
