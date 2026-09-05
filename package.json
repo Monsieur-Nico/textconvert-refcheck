@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "prepare": "husky",
     "all": "npm run format && npm run lint:fix && npm run typecheck && npm test && npm run build"
   },
@@ -50,6 +51,7 @@
     "@typescript-eslint/eslint-plugin": "^8.69.0",
     "@typescript-eslint/parser": "^8.69.0",
     "@vercel/ncc": "^0.45.0",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "husky": "^9.1.7",
