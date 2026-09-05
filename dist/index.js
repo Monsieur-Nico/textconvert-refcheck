@@ -31966,6 +31966,10 @@ exports.upsertComment = upsertComment;
 // Hidden marker used to find this Action's own comment on a later run, so
 // it's updated in place instead of posting a new comment on every push.
 exports.COMMENT_MARKER = '<!-- textconvert-refcheck -->';
+const MARKETPLACE_URL = 'https://github.com/marketplace/actions/textconvert-refcheck';
+const LOGO_URL = 'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
+const LOGO_IMG = `<img src="${LOGO_URL}" width="18" height="18" align="absmiddle" alt="" />`;
+const NAME_LINK = `[textconvert refcheck](${MARKETPLACE_URL})`;
 const VIOLATION_LABELS = {
     mention: '@mention',
     'issue-reference': 'issue/PR reference',
@@ -31994,7 +31998,7 @@ function escapeMarkdown(value) {
 /** Formats the summary comment body for a set of violations (empty = all clear). */
 function formatComment(violations) {
     if (violations.length === 0) {
-        return `${exports.COMMENT_MARKER}\n✅ **textconvert refcheck** — no dangling references found.`;
+        return `${exports.COMMENT_MARKER}\n${LOGO_IMG} ✅ **${NAME_LINK}** — no dangling references found.`;
     }
     const lines = violations.map((v) => {
         const raw = escapeMarkdown(v.raw);
@@ -32003,7 +32007,7 @@ function formatComment(violations) {
     });
     const body = [
         exports.COMMENT_MARKER,
-        '### ⚠️ textconvert refcheck found dangling references',
+        `### ⚠️ ${LOGO_IMG} ${NAME_LINK} found dangling references`,
         '',
         ...lines,
     ];
