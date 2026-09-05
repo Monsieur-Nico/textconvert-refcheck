@@ -31982,26 +31982,31 @@ const VIOLATION_LABELS = {
 // PNG is 500x500 -- explicit width/height keep it from ever rendering
 // oversized regardless of source resolution).
 const LOGO_SIZE = 44;
-// A header card: the project logo floated left of a heading-sized,
-// linked product name. This is what carries the Action's branding,
-// since it posts as the generic github-actions[bot] identity rather
-// than a custom GitHub App.
+// A header card: the project logo inline with a heading-sized, linked
+// product name, followed by a plain subtitle line. This is what carries
+// the Action's branding, since it posts as the generic
+// github-actions[bot] identity rather than a custom GitHub App.
 //
 // This deliberately isn't a <table> layout -- GitHub's comment
 // sanitizer strips both the `style` and `border` attributes outright
 // (verified by rendering through the real GitHub markdown API), so a
 // <table> always gets its default bordered-cell styling with no way to
-// suppress it. `align`/`clear` survive sanitization, so a floated
-// image achieves the same side-by-side layout without a visible box.
+// suppress it.
+//
+// It's also deliberately not a floated image (`align="left"` +
+// `clear`): a float only pushes following content below it once that
+// content's *combined* height happens to exceed the image's height,
+// which isn't reliable -- the subtitle line ended up rendering beside
+// the logo instead of under the heading. Putting the image inline
+// inside the heading itself (vertical-centered against it via
+// `align="absmiddle"`, which survives sanitization same as `align="left"`
+// did) avoids floats entirely: the subtitle is just a plain paragraph
+// that always starts on its own line below, no wrap math involved.
 function headerCard() {
     return [
-        `<img src="${LOGO_URL}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" align="left" alt="textconvert refcheck" />`,
-        '',
-        `### [textconvert refcheck](${MARKETPLACE_URL})`,
+        `### <img src="${LOGO_URL}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" align="absmiddle" alt="textconvert refcheck" /> [textconvert refcheck](${MARKETPLACE_URL})`,
         '',
         'Reference integrity check',
-        '',
-        '<br clear="left">',
     ].join('\n');
 }
 // Violation.raw/reason are built from attacker-controlled PR/issue body
