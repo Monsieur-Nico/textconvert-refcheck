@@ -3,6 +3,7 @@ import * as github from '@actions/github';
 import { formatComment, upsertComment } from './comment';
 import type { RepoContext } from './github';
 import { validateBody } from './validate';
+import { getActionVersion } from './version';
 
 // v1 scope: reacts to the PR/issue body itself (pull_request,
 // pull_request_target, issues events) -- not comment bodies
@@ -39,7 +40,8 @@ async function run(): Promise<void> {
 
     core.info(`Found ${violations.length} dangling reference(s).`);
 
-    await upsertComment(octokit, ctx, formatComment(violations));
+    const version = getActionVersion(process.env.GITHUB_ACTION_PATH);
+    await upsertComment(octokit, ctx, formatComment(violations, version));
 
     if (failOnViolation && violations.length > 0) {
       core.setFailed(`Found ${violations.length} dangling reference(s) in the PR/issue body.`);

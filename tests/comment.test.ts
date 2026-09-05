@@ -22,8 +22,19 @@ describe('#formatComment', () => {
       ]),
     ]) {
       const headingLine = body.split('\n').find((l) => l.includes(marketplaceLink));
-      expect(headingLine?.startsWith('### ')).toBe(true);
+      expect(headingLine?.startsWith('## ')).toBe(true);
     }
+  });
+
+  it('gives the heading a native border via h2, not h1 or h3+', () => {
+    // GitHub's default markdown CSS only puts a border-bottom on h1/h2 --
+    // h1 is reserved for real document titles, so h2 is the level that
+    // gets a free divider without looking like the comment IS the PR.
+    const body = formatComment([]);
+    const headingLine = body.split('\n').find((l) => /^#{1,6} /.test(l));
+
+    expect(headingLine?.startsWith('## ')).toBe(true);
+    expect(headingLine?.startsWith('### ')).toBe(false);
   });
 
   it('includes the project logo inline with the heading, constrained to 44x44, with no table or float', () => {
@@ -48,7 +59,7 @@ describe('#formatComment', () => {
   it('puts the subtitle on its own line directly after the heading', () => {
     const body = formatComment([]);
     const lines = body.split('\n');
-    const headingIndex = lines.findIndex((l) => l.startsWith('### '));
+    const headingIndex = lines.findIndex((l) => l.startsWith('## '));
 
     expect(headingIndex).toBeGreaterThanOrEqual(0);
     expect(lines[headingIndex + 1]).toBe('');
@@ -77,6 +88,67 @@ describe('#formatComment', () => {
     expect(body).toContain('<details open>');
     expect(body).toContain('6 dangling references');
     expect(body).toContain('</details>');
+  });
+
+  it('prefixes each violation with an icon for its type', () => {
+    const violations: Violation[] = [
+      { type: 'mention', raw: '@jordam', reason: 'x' },
+      { type: 'issue-reference', raw: '#1', reason: 'x' },
+      { type: 'file-reference', raw: 'a.ts', reason: 'x' },
+    ];
+
+    const body = formatComment(violations);
+
+    expect(body).toContain('- 👤 **@mention**');
+    expect(body).toContain('- 🔗 **issue/PR reference**');
+    expect(body).toContain('- 📄 **file/line reference**');
+  });
+
+  it('adds a per-type count breakdown to the warning alert once the list is collapsed', () => {
+    const violations: Violation[] = [
+      ...Array.from({ length: 3 }, (_, i) => ({
+        type: 'mention' as const,
+        raw: `@u${i}`,
+        reason: 'x',
+      })),
+      { type: 'issue-reference' as const, raw: '#1', reason: 'x' },
+      { type: 'issue-reference' as const, raw: '#2', reason: 'x' },
+      { type: 'file-reference' as const, raw: 'a.ts', reason: 'x' },
+      { type: 'file-reference' as const, raw: 'b.ts', reason: 'x' },
+    ];
+
+    const body = formatComment(violations);
+
+    expect(body).toContain('> 3 @mentions, 2 issue/PR references, 2 file/line references');
+  });
+
+  it('omits the count breakdown when the list is short enough to stay visible', () => {
+    const violations: Violation[] = [
+      { type: 'mention', raw: '@a', reason: 'x' },
+      { type: 'issue-reference', raw: '#1', reason: 'x' },
+    ];
+
+    const body = formatComment(violations);
+
+    expect(body).not.toContain('@mentions,');
+  });
+
+  it('includes a footer linking the project, textConvert, and the issue tracker', () => {
+    const footerLine =
+      '<sub>[textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck) · built alongside [textConvert](https://github.com/Monsieur-Nico/textConvert) · [Report an issue](https://github.com/Monsieur-Nico/textconvert-refcheck/issues)</sub>';
+
+    expect(formatComment([])).toContain(footerLine);
+    expect(formatComment([{ type: 'mention', raw: '@jordam', reason: 'x' }])).toContain(footerLine);
+  });
+
+  it('includes the version in the footer when known, omits it when not', () => {
+    expect(formatComment([], '1.5.0')).toContain(
+      '[textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck) v1.5.0 ·',
+    );
+    expect(formatComment([])).toContain(
+      '[textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck) ·',
+    );
+    expect(formatComment([])).not.toContain(' v ·');
   });
 
   it('formats a list of violations', () => {

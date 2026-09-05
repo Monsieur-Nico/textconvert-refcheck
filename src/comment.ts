@@ -6,25 +6,57 @@ import type { Violation } from './validate';
 export const COMMENT_MARKER = '<!-- textconvert-refcheck -->';
 
 const MARKETPLACE_URL = 'https://github.com/marketplace/actions/textconvert-refcheck';
+const TEXTCONVERT_URL = 'https://github.com/Monsieur-Nico/textConvert';
+const ISSUES_URL = 'https://github.com/Monsieur-Nico/textconvert-refcheck/issues';
 const LOGO_URL =
   'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
 
 // Above this many violations, the list is collapsed into a <details> so a
 // large PR body doesn't turn the comment into an endless scroll -- below
 // it, the list stays directly visible since hiding 1-5 items behind a
-// click costs more than it saves.
+// click costs more than it saves. The same threshold gates the per-type
+// count breakdown in the warning alert: below it, the directly-visible
+// list already shows everything, so a breakdown would just repeat it.
 const DETAILS_THRESHOLD = 5;
 
+// Listed in the fixed order the count breakdown (and, incidentally, this
+// object's own iteration) renders them in.
 const VIOLATION_LABELS: Record<Violation['type'], string> = {
   mention: '@mention',
   'issue-reference': 'issue/PR reference',
   'file-reference': 'file/line reference',
 };
 
+const VIOLATION_ICONS: Record<Violation['type'], string> = {
+  mention: '👤',
+  'issue-reference': '🔗',
+  'file-reference': '📄',
+};
+
 // Fixed display size for the logo in the header card below (the source
-// PNG is 500x500 -- explicit width/height keep it from ever rendering
-// oversized regardless of source resolution).
+// PNG is cropped tight to its own content -- explicit width/height keep
+// it from ever rendering oversized regardless of source resolution).
 const LOGO_SIZE = 44;
+
+function pluralize(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
+}
+
+// "N @mentions, M issue/PR references, ..." for whichever types are
+// actually present, in VIOLATION_LABELS' fixed order (so it doesn't
+// reshuffle from run to run based on the order violations were found in).
+function countBreakdown(violations: Violation[]): string {
+  const counts = new Map<Violation['type'], number>();
+  for (const v of violations) counts.set(v.type, (counts.get(v.type) ?? 0) + 1);
+
+  return (Object.keys(VIOLATION_LABELS) as Violation['type'][])
+    .filter((type) => counts.has(type))
+    .map((type) => {
+      const count = counts.get(type) as number;
+      return `${count} ${pluralize(count, VIOLATION_LABELS[type])}`;
+    })
+    .join(', ');
+}
 
 // A header card: the project logo inline with a heading-sized, linked
 // product name, followed by a plain subtitle line. This is what carries
@@ -46,12 +78,24 @@ const LOGO_SIZE = 44;
 // `align="absmiddle"`, which survives sanitization same as `align="left"`
 // did) avoids floats entirely: the subtitle is just a plain paragraph
 // that always starts on its own line below, no wrap math involved.
+//
+// The heading is `##`, not `###`: GitHub's default markdown CSS gives
+// h1/h2 (and only those levels) a native thin `border-bottom` -- a free,
+// theme-aware divider under the header with no extra markup, the same
+// way Codecov's own PR comments are just a plain `## ... Report` heading.
 function headerCard(): string {
   return [
-    `### <img src="${LOGO_URL}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" align="absmiddle" alt="textconvert refcheck" /> [textconvert refcheck](${MARKETPLACE_URL})`,
+    `## <img src="${LOGO_URL}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" align="absmiddle" alt="textconvert refcheck" /> [textconvert refcheck](${MARKETPLACE_URL})`,
     '',
     'Reference integrity check',
   ].join('\n');
+}
+
+function footer(version: string | undefined): string {
+  const name = version
+    ? `[textconvert refcheck](${MARKETPLACE_URL}) v${version}`
+    : `[textconvert refcheck](${MARKETPLACE_URL})`;
+  return `<sub>${name} · built alongside [textConvert](${TEXTCONVERT_URL}) · [Report an issue](${ISSUES_URL})</sub>`;
 }
 
 // Violation.raw/reason are built from attacker-controlled PR/issue body
@@ -75,8 +119,12 @@ function escapeMarkdown(value: string): string {
   return value.replace(/`/g, '').replace(/([*_[\]\\])/g, '\\$1');
 }
 
-/** Formats the summary comment body for a set of violations (empty = all clear). */
-export function formatComment(violations: Violation[]): string {
+/**
+ * Formats the summary comment body for a set of violations (empty = all
+ * clear). `version` is this Action's own version (see {@link
+ * getActionVersion}), shown in the footer when known.
+ */
+export function formatComment(violations: Violation[], version?: string): string {
   if (violations.length === 0) {
     return [
       COMMENT_MARKER,
@@ -85,27 +133,29 @@ export function formatComment(violations: Violation[]): string {
       '',
       '> [!TIP]',
       '> **All references are valid.** No dangling mentions, issue/PR references, or file/line references were found.',
+      '',
+      footer(version),
     ].join('\n');
   }
 
   const lines = violations.map((v) => {
     const raw = escapeMarkdown(v.raw);
     const reason = escapeMarkdown(v.reason);
-    return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
+    return `- ${VIOLATION_ICONS[v.type]} **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
   });
 
   const noun = violations.length === 1 ? 'reference' : 'references';
-  const listBlock =
-    violations.length > DETAILS_THRESHOLD
-      ? [
-          '<details open>',
-          `<summary><strong>${violations.length} dangling ${noun}</strong></summary>`,
-          '',
-          ...lines,
-          '',
-          '</details>',
-        ]
-      : lines;
+  const isLargeList = violations.length > DETAILS_THRESHOLD;
+  const listBlock = isLargeList
+    ? [
+        '<details open>',
+        `<summary><strong>${violations.length} dangling ${noun}</strong></summary>`,
+        '',
+        ...lines,
+        '',
+        '</details>',
+      ]
+    : lines;
 
   const body = [
     COMMENT_MARKER,
@@ -114,9 +164,13 @@ export function formatComment(violations: Violation[]): string {
     '',
     '> [!WARNING]',
     `> **${violations.length} dangling ${noun}.**`,
-    '',
-    ...listBlock,
   ];
+
+  // Below the collapse threshold, the list is already directly visible --
+  // a breakdown here would just repeat it.
+  if (isLargeList) body.push(`> ${countBreakdown(violations)}`);
+
+  body.push('', ...listBlock);
 
   if (violations.some((v) => v.type === 'mention')) {
     body.push(
@@ -125,6 +179,8 @@ export function formatComment(violations: Violation[]): string {
       "> If a flagged `@mention` is a typo, fix the username. If it's just prose that isn't meant to tag anyone, wrap it in backticks (e.g. `` `@mentions` ``) and this check will leave it alone next time.",
     );
   }
+
+  body.push('', footer(version));
 
   return body.join('\n');
 }
