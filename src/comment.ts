@@ -21,17 +21,21 @@ const VIOLATION_LABELS: Record<Violation['type'], string> = {
   'file-reference': 'file/line reference',
 };
 
-// A compact header card: the project logo at a fixed 32x32 display size
-// (the source PNG is 500x500 -- explicit width/height keep it from ever
-// rendering oversized) next to the linked product name. This is what
-// carries the Action's branding, since it posts as the generic
-// github-actions[bot] identity rather than a custom GitHub App.
+// Fixed display size for the logo in the header card below (the source
+// PNG is 500x500 -- explicit width/height keep it from ever rendering
+// oversized regardless of source resolution).
+const LOGO_SIZE = 44;
+
+// A compact header card: the project logo next to the linked product
+// name. This is what carries the Action's branding, since it posts as
+// the generic github-actions[bot] identity rather than a custom GitHub
+// App.
 function headerCard(): string {
   return [
     '<table>',
     '<tr>',
-    '<td width="42">',
-    `<img src="${LOGO_URL}" width="32" height="32" alt="textconvert refcheck" />`,
+    `<td width="${LOGO_SIZE + 10}">`,
+    `<img src="${LOGO_URL}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" alt="textconvert refcheck" />`,
     '</td>',
     '<td>',
     `<strong><a href="${MARKETPLACE_URL}">textconvert refcheck</a></strong><br>`,

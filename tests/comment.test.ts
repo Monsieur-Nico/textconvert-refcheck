@@ -23,7 +23,7 @@ describe('#formatComment', () => {
     ).toContain(marketplaceLink);
   });
 
-  it('includes the project logo in the header card, constrained to 32x32', () => {
+  it('includes the project logo in the header card, constrained to 44x44', () => {
     const logoUrl =
       'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
 
@@ -34,7 +34,7 @@ describe('#formatComment', () => {
       ]),
     ]) {
       expect(body).toContain(logoUrl);
-      expect(body).toContain('width="32" height="32"');
+      expect(body).toContain('width="44" height="44"');
     }
   });
 
