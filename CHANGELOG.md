@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.5.0...v1.6.0) (2026-09-05)
+
+
+### Features
+
+* redesign the comment (header alignment, icons, footer, cropped logo) ([#17](https://github.com/Monsieur-Nico/textconvert-refcheck/issues/17)) ([31b4f0f](https://github.com/Monsieur-Nico/textconvert-refcheck/commit/31b4f0f9be1a3685e5fe80afb8e998c7bdf68de5))
+
 ## [1.5.0](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.4.0...v1.5.0) (2026-09-05)
 
 
