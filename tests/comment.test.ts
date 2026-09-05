@@ -7,12 +7,13 @@ describe('#formatComment', () => {
   it('formats an all-clear message when there are no violations', () => {
     const body = formatComment([]);
     expect(body).toContain(COMMENT_MARKER);
-    expect(body).toContain('no dangling references found');
+    expect(body).toContain('> [!TIP]');
+    expect(body).toContain('All references are valid');
   });
 
   it('links the action name to its Marketplace listing', () => {
     const marketplaceLink =
-      '[textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck)';
+      '<a href="https://github.com/marketplace/actions/textconvert-refcheck">textconvert refcheck</a>';
 
     expect(formatComment([])).toContain(marketplaceLink);
     expect(
@@ -22,25 +23,43 @@ describe('#formatComment', () => {
     ).toContain(marketplaceLink);
   });
 
-  it('includes the project logo next to the name', () => {
+  it('includes the project logo in the header card, constrained to 32x32', () => {
     const logoUrl =
       'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
 
-    expect(formatComment([])).toContain(logoUrl);
-    expect(
+    for (const body of [
+      formatComment([]),
       formatComment([
         { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },
       ]),
-    ).toContain(logoUrl);
+    ]) {
+      expect(body).toContain(logoUrl);
+      expect(body).toContain('width="32" height="32"');
+    }
   });
 
-  it('keeps the violations heading a valid ATX heading (# at the very start of the line)', () => {
+  it('uses a warning alert for violations, listing the count directly visible', () => {
     const body = formatComment([
       { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },
     ]);
 
-    const headingLine = body.split('\n').find((l) => l.includes('found dangling references'));
-    expect(headingLine?.startsWith('### ')).toBe(true);
+    expect(body).toContain('> [!WARNING]');
+    expect(body).toContain('1 dangling reference.');
+    expect(body).not.toContain('<details');
+  });
+
+  it('collapses large violation lists into a <details> block', () => {
+    const violations: Violation[] = Array.from({ length: 6 }, (_, i) => ({
+      type: 'issue-reference' as const,
+      raw: `#${i}`,
+      reason: `#${i} does not exist.`,
+    }));
+
+    const body = formatComment(violations);
+
+    expect(body).toContain('<details open>');
+    expect(body).toContain('6 dangling references');
+    expect(body).toContain('</details>');
   });
 
   it('formats a list of violations', () => {
