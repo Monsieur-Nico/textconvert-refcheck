@@ -31968,13 +31968,36 @@ exports.upsertComment = upsertComment;
 exports.COMMENT_MARKER = '<!-- textconvert-refcheck -->';
 const MARKETPLACE_URL = 'https://github.com/marketplace/actions/textconvert-refcheck';
 const LOGO_URL = 'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
-const LOGO_IMG = `<img src="${LOGO_URL}" width="18" height="18" align="absmiddle" alt="" />`;
-const NAME_LINK = `[textconvert refcheck](${MARKETPLACE_URL})`;
+// Above this many violations, the list is collapsed into a <details> so a
+// large PR body doesn't turn the comment into an endless scroll -- below
+// it, the list stays directly visible since hiding 1-5 items behind a
+// click costs more than it saves.
+const DETAILS_THRESHOLD = 5;
 const VIOLATION_LABELS = {
     mention: '@mention',
     'issue-reference': 'issue/PR reference',
     'file-reference': 'file/line reference',
 };
+// A compact header card: the project logo at a fixed 32x32 display size
+// (the source PNG is 500x500 -- explicit width/height keep it from ever
+// rendering oversized) next to the linked product name. This is what
+// carries the Action's branding, since it posts as the generic
+// github-actions[bot] identity rather than a custom GitHub App.
+function headerCard() {
+    return [
+        '<table>',
+        '<tr>',
+        '<td width="42">',
+        `<img src="${LOGO_URL}" width="32" height="32" alt="textconvert refcheck" />`,
+        '</td>',
+        '<td>',
+        `<strong><a href="${MARKETPLACE_URL}">textconvert refcheck</a></strong><br>`,
+        '<sub>Reference integrity check</sub>',
+        '</td>',
+        '</tr>',
+        '</table>',
+    ].join('\n');
+}
 // Violation.raw/reason are built from attacker-controlled PR/issue body
 // text -- some parsers (URL-form references, in particular) allow
 // characters other than the ones a real username/path/issue-number would
@@ -31998,21 +32021,43 @@ function escapeMarkdown(value) {
 /** Formats the summary comment body for a set of violations (empty = all clear). */
 function formatComment(violations) {
     if (violations.length === 0) {
-        return `${exports.COMMENT_MARKER}\n${LOGO_IMG} ✅ **${NAME_LINK}** — no dangling references found.`;
+        return [
+            exports.COMMENT_MARKER,
+            '',
+            headerCard(),
+            '',
+            '> [!TIP]',
+            '> **All references are valid.** No dangling mentions, issue/PR references, or file/line references were found.',
+        ].join('\n');
     }
     const lines = violations.map((v) => {
         const raw = escapeMarkdown(v.raw);
         const reason = escapeMarkdown(v.reason);
         return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
     });
+    const noun = violations.length === 1 ? 'reference' : 'references';
+    const listBlock = violations.length > DETAILS_THRESHOLD
+        ? [
+            '<details open>',
+            `<summary><strong>${violations.length} dangling ${noun}</strong></summary>`,
+            '',
+            ...lines,
+            '',
+            '</details>',
+        ]
+        : lines;
     const body = [
         exports.COMMENT_MARKER,
-        `### ⚠️ ${LOGO_IMG} ${NAME_LINK} found dangling references`,
         '',
-        ...lines,
+        headerCard(),
+        '',
+        '> [!WARNING]',
+        `> **${violations.length} dangling ${noun}.**`,
+        '',
+        ...listBlock,
     ];
     if (violations.some((v) => v.type === 'mention')) {
-        body.push('', "> If a flagged `@mention` is a typo, fix the username. If it's just prose that isn't meant to tag anyone, wrap it in backticks (e.g. `` `@mentions` ``) and this check will leave it alone next time.");
+        body.push('', '> [!TIP]', "> If a flagged `@mention` is a typo, fix the username. If it's just prose that isn't meant to tag anyone, wrap it in backticks (e.g. `` `@mentions` ``) and this check will leave it alone next time.");
     }
     return body.join('\n');
 }
