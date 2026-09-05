@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.3.0...v1.4.0) (2026-09-05)
+
+
+### Features
+
+* redesign the summary comment with a header card and alerts ([#13](https://github.com/Monsieur-Nico/textconvert-refcheck/issues/13)) ([b37a7db](https://github.com/Monsieur-Nico/textconvert-refcheck/commit/b37a7db932878e55074a445121fb2bd29e93ab68))
+
 ## [1.3.0](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.2.0...v1.3.0) (2026-09-05)
 
 
