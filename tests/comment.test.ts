@@ -22,6 +22,27 @@ describe('#formatComment', () => {
     ).toContain(marketplaceLink);
   });
 
+  it('includes the project logo next to the name', () => {
+    const logoUrl =
+      'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
+
+    expect(formatComment([])).toContain(logoUrl);
+    expect(
+      formatComment([
+        { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },
+      ]),
+    ).toContain(logoUrl);
+  });
+
+  it('keeps the violations heading a valid ATX heading (# at the very start of the line)', () => {
+    const body = formatComment([
+      { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },
+    ]);
+
+    const headingLine = body.split('\n').find((l) => l.includes('found dangling references'));
+    expect(headingLine?.startsWith('### ')).toBe(true);
+  });
+
   it('formats a list of violations', () => {
     const violations: Violation[] = [
       { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },

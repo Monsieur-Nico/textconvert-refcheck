@@ -6,6 +6,9 @@ import type { Violation } from './validate';
 export const COMMENT_MARKER = '<!-- textconvert-refcheck -->';
 
 const MARKETPLACE_URL = 'https://github.com/marketplace/actions/textconvert-refcheck';
+const LOGO_URL =
+  'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
+const LOGO_IMG = `<img src="${LOGO_URL}" width="18" height="18" align="absmiddle" alt="" />`;
 const NAME_LINK = `[textconvert refcheck](${MARKETPLACE_URL})`;
 
 const VIOLATION_LABELS: Record<Violation['type'], string> = {
@@ -38,7 +41,7 @@ function escapeMarkdown(value: string): string {
 /** Formats the summary comment body for a set of violations (empty = all clear). */
 export function formatComment(violations: Violation[]): string {
   if (violations.length === 0) {
-    return `${COMMENT_MARKER}\n✅ **${NAME_LINK}** — no dangling references found.`;
+    return `${COMMENT_MARKER}\n${LOGO_IMG} ✅ **${NAME_LINK}** — no dangling references found.`;
   }
 
   const lines = violations.map((v) => {
@@ -47,7 +50,12 @@ export function formatComment(violations: Violation[]): string {
     return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
   });
 
-  const body = [COMMENT_MARKER, `### ⚠️ ${NAME_LINK} found dangling references`, '', ...lines];
+  const body = [
+    COMMENT_MARKER,
+    `### ⚠️ ${LOGO_IMG} ${NAME_LINK} found dangling references`,
+    '',
+    ...lines,
+  ];
 
   if (violations.some((v) => v.type === 'mention')) {
     body.push(
