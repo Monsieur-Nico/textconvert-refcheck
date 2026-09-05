@@ -10,8 +10,11 @@
   <a href="https://github.com/marketplace/actions/textconvert-refcheck">
     <img src="https://img.shields.io/badge/marketplace-textconvert%20refcheck-blue?style=flat-square&logo=github" alt="GitHub Marketplace" />
   </a>
-  <img src="https://github.com/Monsieur-Nico/textconvert-refcheck/actions/workflows/ci.yml/badge.svg" alt="CI Status" />
+  <img src="https://img.shields.io/github/v/release/Monsieur-Nico/textconvert-refcheck?style=flat-square&label=release" alt="Latest release" />
+  <img src="https://img.shields.io/github/actions/workflow/status/Monsieur-Nico/textconvert-refcheck/ci.yml?style=flat-square&label=CI" alt="CI Status" />
   <img src="https://img.shields.io/github/license/Monsieur-Nico/textconvert-refcheck?style=flat-square" alt="GitHub license" />
+  <img src="https://img.shields.io/github/issues-raw/Monsieur-Nico/textconvert-refcheck?style=flat-square" alt="GitHub open issues" />
+  <img src="https://img.shields.io/github/commit-activity/m/Monsieur-Nico/textconvert-refcheck?style=flat-square" alt="GitHub commit activity" />
 </p>
 
 A GitHub Action that checks every reference in a pull request or issue body actually resolves to something real, and posts one summary comment for anything that doesn't.
