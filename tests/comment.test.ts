@@ -10,6 +10,18 @@ describe('#formatComment', () => {
     expect(body).toContain('no dangling references found');
   });
 
+  it('links the action name to its Marketplace listing', () => {
+    const marketplaceLink =
+      '[textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck)';
+
+    expect(formatComment([])).toContain(marketplaceLink);
+    expect(
+      formatComment([
+        { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },
+      ]),
+    ).toContain(marketplaceLink);
+  });
+
   it('formats a list of violations', () => {
     const violations: Violation[] = [
       { type: 'mention', raw: '@jordam', reason: '@jordam does not match a collaborator.' },

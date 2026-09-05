@@ -31966,6 +31966,8 @@ exports.upsertComment = upsertComment;
 // Hidden marker used to find this Action's own comment on a later run, so
 // it's updated in place instead of posting a new comment on every push.
 exports.COMMENT_MARKER = '<!-- textconvert-refcheck -->';
+const MARKETPLACE_URL = 'https://github.com/marketplace/actions/textconvert-refcheck';
+const NAME_LINK = `[textconvert refcheck](${MARKETPLACE_URL})`;
 const VIOLATION_LABELS = {
     mention: '@mention',
     'issue-reference': 'issue/PR reference',
@@ -31994,19 +31996,14 @@ function escapeMarkdown(value) {
 /** Formats the summary comment body for a set of violations (empty = all clear). */
 function formatComment(violations) {
     if (violations.length === 0) {
-        return `${exports.COMMENT_MARKER}\n✅ **textconvert refcheck** — no dangling references found.`;
+        return `${exports.COMMENT_MARKER}\n✅ **${NAME_LINK}** — no dangling references found.`;
     }
     const lines = violations.map((v) => {
         const raw = escapeMarkdown(v.raw);
         const reason = escapeMarkdown(v.reason);
         return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
     });
-    const body = [
-        exports.COMMENT_MARKER,
-        '### ⚠️ textconvert refcheck found dangling references',
-        '',
-        ...lines,
-    ];
+    const body = [exports.COMMENT_MARKER, `### ⚠️ ${NAME_LINK} found dangling references`, '', ...lines];
     if (violations.some((v) => v.type === 'mention')) {
         body.push('', "> If a flagged `@mention` is a typo, fix the username. If it's just prose that isn't meant to tag anyone, wrap it in backticks (e.g. `` `@mentions` ``) and this check will leave it alone next time.");
     }

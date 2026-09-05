@@ -5,6 +5,9 @@ import type { Violation } from './validate';
 // it's updated in place instead of posting a new comment on every push.
 export const COMMENT_MARKER = '<!-- textconvert-refcheck -->';
 
+const MARKETPLACE_URL = 'https://github.com/marketplace/actions/textconvert-refcheck';
+const NAME_LINK = `[textconvert refcheck](${MARKETPLACE_URL})`;
+
 const VIOLATION_LABELS: Record<Violation['type'], string> = {
   mention: '@mention',
   'issue-reference': 'issue/PR reference',
@@ -35,7 +38,7 @@ function escapeMarkdown(value: string): string {
 /** Formats the summary comment body for a set of violations (empty = all clear). */
 export function formatComment(violations: Violation[]): string {
   if (violations.length === 0) {
-    return `${COMMENT_MARKER}\n✅ **textconvert refcheck** — no dangling references found.`;
+    return `${COMMENT_MARKER}\n✅ **${NAME_LINK}** — no dangling references found.`;
   }
 
   const lines = violations.map((v) => {
@@ -44,12 +47,7 @@ export function formatComment(violations: Violation[]): string {
     return `- **${VIOLATION_LABELS[v.type]}** \`${raw}\` — ${reason}`;
   });
 
-  const body = [
-    COMMENT_MARKER,
-    '### ⚠️ textconvert refcheck found dangling references',
-    '',
-    ...lines,
-  ];
+  const body = [COMMENT_MARKER, `### ⚠️ ${NAME_LINK} found dangling references`, '', ...lines];
 
   if (violations.some((v) => v.type === 'mention')) {
     body.push(
