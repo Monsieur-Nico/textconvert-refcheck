@@ -11,9 +11,9 @@ describe('#formatComment', () => {
     expect(body).toContain('All references are valid');
   });
 
-  it('links the action name to its Marketplace listing', () => {
+  it('links the action name to its Marketplace listing as a heading', () => {
     const marketplaceLink =
-      '<a href="https://github.com/marketplace/actions/textconvert-refcheck">textconvert refcheck</a>';
+      '### [textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck)';
 
     expect(formatComment([])).toContain(marketplaceLink);
     expect(
@@ -23,7 +23,7 @@ describe('#formatComment', () => {
     ).toContain(marketplaceLink);
   });
 
-  it('includes the project logo in the header card, constrained to 32x32', () => {
+  it('includes the project logo, constrained to 44x44, with no table wrapper', () => {
     const logoUrl =
       'https://raw.githubusercontent.com/Monsieur-Nico/textconvert-refcheck/main/media/logo.png';
 
@@ -34,7 +34,8 @@ describe('#formatComment', () => {
       ]),
     ]) {
       expect(body).toContain(logoUrl);
-      expect(body).toContain('width="32" height="32"');
+      expect(body).toContain('width="44" height="44"');
+      expect(body).not.toContain('<table>');
     }
   });
 
