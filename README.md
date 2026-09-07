@@ -12,6 +12,9 @@
   </a>
   <img src="https://img.shields.io/github/v/release/Monsieur-Nico/textconvert-refcheck?style=flat-square&label=release" alt="Latest release" />
   <img src="https://img.shields.io/github/actions/workflow/status/Monsieur-Nico/textconvert-refcheck/ci.yml?style=flat-square&label=CI" alt="CI Status" />
+  <a href="https://github.com/Monsieur-Nico/textconvert-refcheck/network/dependents">
+    <img src="https://img.shields.io/badge/used%20by-2%20repos-blue?style=flat-square" alt="Used by" />
+  </a>
   <a href="https://codecov.io/gh/Monsieur-Nico/textconvert-refcheck">
     <img src="https://img.shields.io/codecov/c/github/Monsieur-Nico/textconvert-refcheck?style=flat-square" alt="Coverage Status" />
   </a>
