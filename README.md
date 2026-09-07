@@ -12,6 +12,9 @@
   </a>
   <img src="https://img.shields.io/github/v/release/Monsieur-Nico/textconvert-refcheck?style=flat-square&label=release" alt="Latest release" />
   <img src="https://img.shields.io/github/actions/workflow/status/Monsieur-Nico/textconvert-refcheck/ci.yml?style=flat-square&label=CI" alt="CI Status" />
+  <a href="https://github.com/Monsieur-Nico/textconvert-refcheck/network/dependents">
+    <img src="https://img.shields.io/badge/used%20by-2%20repos-blue?style=flat-square" alt="Used by" />
+  </a>
   <a href="https://codecov.io/gh/Monsieur-Nico/textconvert-refcheck">
     <img src="https://img.shields.io/codecov/c/github/Monsieur-Nico/textconvert-refcheck?style=flat-square" alt="Coverage Status" />
   </a>
@@ -70,16 +73,31 @@ See [the updated types](src/old-name.ts) for context.
 
 `refcheck` posts (or updates) a single comment on the PR:
 
-> ### ⚠️ textconvert refcheck found dangling references
->
-> - **@mention** `@jordam` — @jordam does not match a collaborator on this repository.
-> - **issue/PR reference** `#234` — #234 does not refer to an existing issue or pull request in this repository.
-> - **file/line reference** `[the updated types](src/old-name.ts)` — [the updated types](src/old-name.ts) does not refer to a file that exists on this PR's branch.
+---
+
+## <img src="media/logo.png" width="44" height="44" align="absmiddle" alt="textconvert refcheck" /> [textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck)
+
+Reference integrity check
+
+> [!WARNING]
+> **3 dangling references.**
+
+- 👤 **@mention** `@jordam` — @jordam does not match a collaborator on this repository.
+- 🔗 **issue/PR reference** `#234` — #234 does not refer to an existing issue or pull request in this repository.
+- 📄 **file/line reference** `[the updated types](src/old-name.ts)` — [the updated types](src/old-name.ts) does not refer to a file that exists on this PR's branch.
+
+> [!TIP]
+> If a flagged `@mention` is a typo, fix the username. If it's just prose that isn't meant to tag anyone, wrap it in backticks (e.g. `` `@mentions` ``) and this check will leave it alone next time.
+
+<sub>[textconvert refcheck](https://github.com/marketplace/actions/textconvert-refcheck) v1.6.0 · built alongside [textConvert](https://github.com/Monsieur-Nico/textConvert) · [Report an issue](https://github.com/Monsieur-Nico/textconvert-refcheck/issues)</sub>
+
+---
 
 A few things worth knowing about that comment:
 
 - **It's the same comment every time, not a new one per run.** `refcheck` finds its own previous comment (via a hidden marker) and updates it in place — so if a later push fixes `@jordam` → `@jordan`, the comment updates too, rather than an old "violations found" comment sitting stale next to a newer clean one.
-- **It posts even when everything's clean** — a passing run updates the comment to `✅ textconvert refcheck — no dangling references found.`, so the comment always reflects the PR's current state, not just its worst moment.
+- **It posts even when everything's clean** — a passing run updates the comment to a `[!TIP]` alert reading **All references are valid.**, so the comment always reflects the PR's current state, not just its worst moment.
+- **Past 5 violations, the list collapses into a `<details>`** with a per-type count breakdown (e.g. "2 @mentions, 1 issue/PR reference") shown above it, so a large PR body doesn't turn the comment into an endless scroll.
 - **The check itself doesn't fail by default.** With `fail-on-violation: false` (the default), the workflow run stays green regardless — the comment is purely informational. Set `fail-on-violation: true` to make a run with violations fail the check instead, which blocks merging if that check is marked required in branch protection.
 
 ## Usage
