@@ -111,7 +111,7 @@ async function validateFileReferences(
   const violations: Violation[] = [];
   const sameRepoRefs = dedupeBy(
     findFileReferences(body).filter((ref) => isSameRepo(ctx, ref.owner, ref.repo)),
-    (ref) => `${ref.path}#${ref.line ?? ''}`,
+    (ref) => `${ref.path}#${ref.line ?? ''}-${ref.endLine ?? ''}`,
   ).slice(0, MAX_CHECKS_PER_BODY);
   if (sameRepoRefs.length === 0) return [];
 
@@ -129,12 +129,17 @@ async function validateFileReferences(
 
     if (ref.line === null) continue;
 
+    // For a range anchor (#L10-L20), the end line is the one more likely
+    // to run past the file -- checking only the start (ref.line) would
+    // silently accept e.g. #L10-L9999 in a 50-line file.
+    const lastReferencedLine = ref.endLine ?? ref.line;
+
     const lineCount = await getFileLineCount(octokit, ctx.owner, ctx.repo, ctx.headSha, ref.path);
-    if (lineCount !== null && ref.line > lineCount) {
+    if (lineCount !== null && lastReferencedLine > lineCount) {
       violations.push({
         type: 'file-reference',
         raw: ref.raw,
-        reason: `${ref.raw} references line ${ref.line}, but the file only has ${lineCount} lines.`,
+        reason: `${ref.raw} references line ${lastReferencedLine}, but the file only has ${lineCount} lines.`,
       });
     }
   }

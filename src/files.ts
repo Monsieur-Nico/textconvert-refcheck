@@ -14,6 +14,8 @@ export interface FileReference {
   path: string;
   /** Line number from a `#L10` (or `#L10-L20`, in which case this is the start) anchor, if present. */
   line: number | null;
+  /** End line from a `#L10-L20` range anchor, if present -- null for a single-line anchor or no anchor at all. */
+  endLine: number | null;
 }
 
 const GITHUB_PREFIX = 'https://github.com/';
@@ -42,13 +44,15 @@ export function findBlobUrlReferences(text: string): FileReference[] {
 
     if (match) {
       const [, owner, repo, ref, path] = match;
+      const anchor = parseLineAnchor(fragment);
       references.push({
         raw: text.slice(start, end),
         owner,
         repo,
         ref,
         path,
-        line: parseLineAnchor(fragment),
+        line: anchor?.line ?? null,
+        endLine: anchor?.endLine ?? null,
       });
     }
 
@@ -64,11 +68,14 @@ function splitFragment(value: string): [string, string | undefined] {
   return [value.slice(0, hashIndex), value.slice(hashIndex + 1)];
 }
 
-function parseLineAnchor(fragment: string | undefined): number | null {
+function parseLineAnchor(
+  fragment: string | undefined,
+): { line: number; endLine: number | null } | null {
   if (!fragment) return null;
   const match = lineAnchorPattern.exec(fragment);
   if (!match) return null;
-  return Number(match[1]);
+  // match[2], when present, is the whole "-L20" suffix -- strip the "-L".
+  return { line: Number(match[1]), endLine: match[2] ? Number(match[2].slice(2)) : null };
 }
 
 // Characters that can't appear inside a markdown link's `(...)` target,
@@ -101,13 +108,15 @@ export function findRelativeLinkReferences(text: string): FileReference[] {
 
     if (isRelativeFileTarget(target)) {
       const [pathPart, fragment] = splitFragment(target);
+      const anchor = parseLineAnchor(fragment);
       references.push({
         raw: text.slice(i, end + 1),
         owner: null,
         repo: null,
         ref: null,
         path: pathPart,
-        line: parseLineAnchor(fragment),
+        line: anchor?.line ?? null,
+        endLine: anchor?.endLine ?? null,
       });
     }
 
