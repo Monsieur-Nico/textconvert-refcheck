@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.6.1...v1.6.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* check the end line of a #L10-L20 range, not just the start ([#31](https://github.com/Monsieur-Nico/textconvert-refcheck/issues/31)) ([d1dd4f8](https://github.com/Monsieur-Nico/textconvert-refcheck/commit/d1dd4f8e92a4eb6894cbd4e68bbe85584a620f65))
+
 ## [1.6.1](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.6.0...v1.6.1) (2026-09-08)
 
 
