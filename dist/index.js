@@ -32810,6 +32810,7 @@ function findIssueReferences(text) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.validateBody = validateBody;
+const textconvert_1 = __nccwpck_require__(7730);
 const files_1 = __nccwpck_require__(9148);
 const github_1 = __nccwpck_require__(9248);
 const markdown_1 = __nccwpck_require__(3758);
@@ -32831,6 +32832,21 @@ function isSameRepo(ctx, owner, repo) {
 // bounds the comment body's size, which GitHub itself caps at 65536
 // characters. 50 is far more than any real PR/issue body needs.
 const MAX_CHECKS_PER_BODY = 50;
+// None of findMentionCandidates/findIssueReferences/findFileReferences cap
+// the length of the raw text they match -- a qualified owner/repo#123, a
+// file path, or a blob URL can be arbitrarily long (e.g. a crafted
+// `[x](` + 'a'.repeat(50000) + `)`). raw is embedded twice in the
+// rendered comment (once in a code span, once inline in reason -- see
+// comment.ts), and GitHub caps a comment body at 65536 characters
+// outright, so a handful of maximal matches under MAX_CHECKS_PER_BODY
+// could blow past that limit and fail upsertComment entirely. Truncate
+// once here, upstream of every Violation this module constructs, rather
+// than in each parser -- everything downstream (raw and any reason string
+// built from it) is covered without duplicating the cap in three places.
+const MAX_RAW_LENGTH = 200;
+function truncateRaw(raw) {
+    return (0, textconvert_1.truncate)(raw, MAX_RAW_LENGTH);
+}
 function dedupeBy(items, keyOf) {
     const seen = new Set();
     const result = [];
@@ -32850,11 +32866,14 @@ async function validateMentions(octokit, ctx, body) {
     const collaborators = await (0, github_1.getCollaboratorLogins)(octokit, ctx);
     return mentions
         .filter((mention) => !collaborators.has(mention.slice(1).toLowerCase()))
-        .map((mention) => ({
-        type: 'mention',
-        raw: mention,
-        reason: `${mention} does not match a collaborator on this repository.`,
-    }));
+        .map((mention) => {
+        const raw = truncateRaw(mention);
+        return {
+            type: 'mention',
+            raw,
+            reason: `${raw} does not match a collaborator on this repository.`,
+        };
+    });
 }
 async function validateIssueReferences(octokit, ctx, body) {
     const violations = [];
@@ -32866,10 +32885,11 @@ async function validateIssueReferences(octokit, ctx, body) {
     for (const ref of sameRepoRefs) {
         const exists = await (0, github_1.issueExists)(octokit, ctx.owner, ctx.repo, ref.number);
         if (!exists) {
+            const raw = truncateRaw(ref.raw);
             violations.push({
                 type: 'issue-reference',
-                raw: ref.raw,
-                reason: `${ref.raw} does not refer to an existing issue or pull request in this repository.`,
+                raw,
+                reason: `${raw} does not refer to an existing issue or pull request in this repository.`,
             });
         }
     }
@@ -32887,10 +32907,11 @@ async function validateFileReferences(octokit, ctx, body) {
     const treePaths = await (0, github_1.getRepoTreePaths)(octokit, ctx.owner, ctx.repo, ctx.headSha);
     for (const ref of sameRepoRefs) {
         if (!treePaths.has(ref.path)) {
+            const raw = truncateRaw(ref.raw);
             violations.push({
                 type: 'file-reference',
-                raw: ref.raw,
-                reason: `${ref.raw} does not refer to a file that exists on this PR's branch.`,
+                raw,
+                reason: `${raw} does not refer to a file that exists on this PR's branch.`,
             });
             continue;
         }
@@ -32902,10 +32923,11 @@ async function validateFileReferences(octokit, ctx, body) {
         const lastReferencedLine = ref.endLine ?? ref.line;
         const lineCount = await (0, github_1.getFileLineCount)(octokit, ctx.owner, ctx.repo, ctx.headSha, ref.path);
         if (lineCount !== null && lastReferencedLine > lineCount) {
+            const raw = truncateRaw(ref.raw);
             violations.push({
                 type: 'file-reference',
-                raw: ref.raw,
-                reason: `${ref.raw} references line ${lastReferencedLine}, but the file only has ${lineCount} lines.`,
+                raw,
+                reason: `${raw} references line ${lastReferencedLine}, but the file only has ${lineCount} lines.`,
             });
         }
     }
@@ -46859,6 +46881,3251 @@ function legacyRestEndpointMethods(octokit) {
 legacyRestEndpointMethods.VERSION = VERSION;
 
 //# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
+/***/ 7730:
+/***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __nccwpck_require__) => {
+
+"use strict";
+__nccwpck_require__.r(__webpack_exports__);
+
+
+/**
+ * Make a regex list to split words based on these patterns
+ */
+const regex = {
+    values: {
+        upperCaseKeepLetter: /(?=[A-Z])/g,
+        nonAlphabetic: /[^A-Za-z]/g,
+        nonAlphaTest: /[^A-Za-z]/,
+        punctuation: /[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g,
+        nonAlphaNumeric: /[^A-Za-z0-9]+/g,
+    },
+};
+
+const { values: values$2 } = regex;
+/**
+ * Capitalizes only the first letter of a string, leaving the rest unchanged.
+ * @param text A string to capitalize.
+ * @returns The string with its first letter capitalized.
+ * @example
+ * capitalize('hello world'); // 'Hello world'
+ * capitalize('HELLO WORLD'); // 'HELLO WORLD'
+ */
+function capitalize(text) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    return text.charAt(0).toUpperCase() + text.slice(1);
+}
+/**
+ * Splits text into words the same way snakeCase/kebabCase already did, then
+ * joins them back together with the given delimiter, lowercasing the first
+ * letter of each word.
+ */
+function toDelimiterCase(text, delimiter) {
+    // Make an array of words after splitting them depending on the input case
+    const wordsArray = values$2.nonAlphaTest.test(text)
+        ? text.split(values$2.nonAlphabetic)
+        : text.split(values$2.upperCaseKeepLetter);
+    // Filter the words to 1 letter minimum length and convert the words to lowerCase
+    const caseArray = wordsArray
+        .filter((word) => word.length > 0)
+        .map((word) => word.charAt(0).toLowerCase() + word.slice(1));
+    return caseArray.join(delimiter);
+}
+/**
+ * Convert a string from any convention to Camel Case convention.
+ * @param text A string to be converted to Camel Case.
+ * @returns A string in camelCase convention.
+ * @example
+ * camelCase('hello world'); // 'helloWorld'
+ */
+function camelCase(text) {
+    var _a;
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    // Make an array of words after splitting them
+    const wordsArray = text.split(values$2.nonAlphabetic);
+    // Get the first word out of the array
+    const firstWord = (_a = wordsArray.shift()) === null || _a === void 0 ? void 0 : _a.toLowerCase();
+    // Convert the remaining words to camelCase, dropping any empty segments
+    // left by consecutive delimiters (e.g. 'hello--world') before capitalizing
+    // -- capitalize('') returns an error message, not '', so this filter
+    // preserves the original behavior where an empty word just contributed
+    // nothing to the joined result.
+    const cCaseArray = wordsArray
+        .filter((word) => word.length > 0)
+        .map((word) => capitalize(word));
+    // Join the words and return them
+    return firstWord + cCaseArray.join('');
+}
+/**
+ * Convert a string from any convention to Pascal Case convention.
+ * @param text A string to be converted to Camel Case.
+ * @returns A string in PascalCase convention.
+ * @example
+ * pascalCase('hello world'); // 'HelloWorld'
+ */
+function pascalCase(text) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    // Make an array of words after splitting them
+    const wordsArray = text.split(values$2.nonAlphabetic);
+    // Convert the words to PascalCase, dropping any empty segments left by
+    // consecutive delimiters (see camelCase for why this filter is needed).
+    const pCaseArray = wordsArray
+        .filter((word) => word.length > 0)
+        .map((word) => capitalize(word));
+    // Join the words and return them
+    return pCaseArray.join('');
+}
+/**
+ * Convert a string from any convention to Snake Case convention.
+ * @param text A string to be converted to Snake Case.
+ * @returns A string in snake_case convention.
+ * @example
+ * snakeCase('hello world'); // 'hello_world'
+ */
+function snakeCase(text) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    return toDelimiterCase(text, '_');
+}
+/**
+ * Convert a string from any convention to Kebab Case convention.
+ * @param text A string to be converted to Kebab Case.
+ * @returns A string in kebab-case convention.
+ * @example
+ * kebabCase('hello world'); // 'hello-world'
+ */
+function kebabCase(text) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    return toDelimiterCase(text, '-');
+}
+/**
+ * Capitalizes the first letter of every word, keeping spaces and separators
+ * intact (distinct from {@link pascalCase}, which removes them).
+ *
+ * Uses simple every-word capitalization rather than the "small words stay
+ * lowercase" (a, an, the, of, ...) style convention some style guides use —
+ * simpler, more predictable, and easier to test, at the cost of not being
+ * "typographically correct" by those style guides' rules.
+ * @param text A string to convert to Title Case.
+ * @returns The string with the first letter of every word capitalized.
+ * @example
+ * titleCase('the lord of the rings'); // 'The Lord Of The Rings'
+ * titleCase('hello-world_example'); // 'Hello-World_Example'
+ */
+function titleCase(text) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    return text.replace(/[A-Za-z]+/g, (word) => capitalize(word));
+}
+
+/**
+ * Supported languages for detection
+ */
+exports.Language = void 0;
+(function (Language) {
+    Language["English"] = "english";
+    Language["French"] = "french";
+    Language["Spanish"] = "spanish";
+    Language["German"] = "german";
+    Language["Italian"] = "italian";
+    Language["Portuguese"] = "portuguese";
+    Language["Dutch"] = "dutch";
+    Language["Unknown"] = "unknown";
+})(exports.Language || (exports.Language = {}));
+// Language profiles (character frequency data)
+const languageProfiles = {
+    [exports.Language.English]: {
+        e: 12.7,
+        t: 9.1,
+        a: 8.2,
+        o: 7.5,
+        i: 7.0,
+        n: 6.7,
+        s: 6.3,
+        h: 6.1,
+        r: 6.0,
+        d: 4.3,
+        l: 4.0,
+        u: 2.8,
+        c: 2.8,
+        m: 2.4,
+        w: 2.4,
+        f: 2.2,
+        g: 2.0,
+        y: 2.0,
+        p: 1.9,
+        b: 1.5,
+        v: 1.0,
+        k: 0.8,
+        j: 0.2,
+        x: 0.2,
+        q: 0.1,
+        z: 0.1,
+        th: 3.0,
+        he: 2.5,
+        in: 2.0,
+        er: 1.8,
+        an: 1.6,
+        re: 1.4,
+        on: 1.3,
+        at: 1.2,
+    },
+    [exports.Language.French]: {
+        e: 14.7,
+        a: 8.0,
+        i: 7.5,
+        s: 7.9,
+        n: 7.1,
+        t: 7.0,
+        r: 6.5,
+        l: 5.5,
+        u: 6.0,
+        o: 5.3,
+        d: 3.5,
+        c: 3.0,
+        m: 2.6,
+        p: 2.5,
+        v: 1.6,
+        h: 0.8,
+        g: 1.0,
+        f: 1.0,
+        b: 0.9,
+        q: 1.3,
+        j: 0.3,
+        z: 0.1,
+        x: 0.4,
+        k: 0.0,
+        w: 0.0,
+        y: 0.3,
+        é: 1.9,
+        è: 0.3,
+        ê: 0.2,
+        à: 0.5,
+        â: 0.1,
+        ç: 0.3,
+        ai: 1.0,
+        oi: 0.4,
+        ou: 0.9,
+    },
+    [exports.Language.Spanish]: {
+        e: 13.7,
+        a: 12.5,
+        o: 8.7,
+        s: 7.8,
+        n: 7.0,
+        r: 6.4,
+        i: 6.2,
+        l: 5.8,
+        d: 5.8,
+        t: 4.6,
+        c: 4.0,
+        u: 3.9,
+        m: 3.1,
+        p: 2.5,
+        b: 1.4,
+        g: 1.0,
+        v: 1.0,
+        f: 0.7,
+        h: 0.7,
+        q: 0.9,
+        j: 0.4,
+        z: 0.5,
+        ñ: 0.3,
+        y: 1.0,
+        x: 0.2,
+        k: 0.0,
+        w: 0.0,
+        á: 0.5,
+        é: 0.4,
+        í: 0.4,
+        ó: 0.9,
+        ú: 0.4,
+        qu: 0.8,
+        ue: 0.6,
+        ch: 0.4,
+    },
+    [exports.Language.German]: {
+        e: 16.9,
+        n: 10.0,
+        i: 7.6,
+        s: 7.3,
+        r: 7.0,
+        t: 6.1,
+        a: 6.5,
+        d: 5.1,
+        h: 4.8,
+        u: 4.4,
+        l: 3.4,
+        c: 2.7,
+        g: 3.0,
+        m: 2.5,
+        o: 2.5,
+        b: 1.9,
+        w: 1.9,
+        f: 1.7,
+        k: 1.4,
+        z: 1.1,
+        v: 0.7,
+        p: 0.7,
+        j: 0.3,
+        y: 0.1,
+        q: 0.02,
+        x: 0.03,
+        ä: 0.5,
+        ö: 0.3,
+        ü: 0.6,
+        ß: 0.3,
+        ch: 2.6,
+        ei: 1.8,
+        en: 3.8,
+        er: 3.6,
+        ie: 1.7,
+    },
+    [exports.Language.Italian]: {
+        e: 11.8,
+        a: 11.7,
+        i: 10.1,
+        o: 9.8,
+        n: 6.9,
+        t: 5.6,
+        r: 6.4,
+        l: 6.3,
+        s: 5.0,
+        c: 4.5,
+        d: 3.7,
+        p: 3.0,
+        u: 3.0,
+        m: 2.5,
+        v: 2.1,
+        g: 1.6,
+        h: 1.5,
+        b: 0.9,
+        f: 0.9,
+        z: 0.5,
+        q: 0.5,
+        à: 0.6,
+        è: 0.4,
+        ì: 0.1,
+        ò: 0.2,
+        ù: 0.1,
+        ch: 0.5,
+        di: 0.9,
+        la: 0.7,
+        re: 0.6,
+    },
+    [exports.Language.Portuguese]: {
+        a: 14.6,
+        e: 12.6,
+        o: 10.7,
+        s: 7.8,
+        r: 6.5,
+        i: 6.2,
+        n: 5.0,
+        t: 4.7,
+        d: 4.9,
+        m: 4.7,
+        u: 4.0,
+        c: 3.7,
+        l: 2.8,
+        p: 2.5,
+        v: 1.7,
+        g: 1.3,
+        b: 1.0,
+        f: 1.0,
+        h: 0.8,
+        q: 1.2,
+        ã: 0.7,
+        á: 0.5,
+        é: 0.4,
+        ó: 0.4,
+        ç: 0.5,
+        õ: 0.3,
+        j: 0.3,
+        z: 0.5,
+        ê: 0.1,
+        â: 0.1,
+        qu: 0.8,
+        de: 0.7,
+        es: 0.7,
+    },
+    [exports.Language.Dutch]: {
+        e: 19.0,
+        n: 10.0,
+        a: 7.5,
+        t: 6.5,
+        i: 6.5,
+        r: 6.0,
+        o: 6.0,
+        d: 5.8,
+        s: 3.7,
+        l: 3.5,
+        g: 3.4,
+        v: 2.8,
+        h: 2.4,
+        k: 2.2,
+        m: 2.2,
+        u: 2.0,
+        j: 1.5,
+        w: 1.5,
+        z: 1.4,
+        p: 1.2,
+        b: 1.6,
+        c: 1.2,
+        f: 0.8,
+        y: 0.0,
+        x: 0.0,
+        q: 0.0,
+        ij: 1.0,
+        en: 3.5,
+        de: 3.0,
+        er: 2.0,
+        ee: 1.8,
+        oo: 1.0,
+    },
+    [exports.Language.Unknown]: {},
+};
+// Common stopwords for each language
+const stopwords = {
+    [exports.Language.English]: [
+        'the',
+        'be',
+        'to',
+        'of',
+        'and',
+        'a',
+        'in',
+        'that',
+        'have',
+        'i',
+        'it',
+        'for',
+        'not',
+        'on',
+        'with',
+        'he',
+        'as',
+        'you',
+        'do',
+        'at',
+        'this',
+        'but',
+        'his',
+        'by',
+        'from',
+        'they',
+        'we',
+        'say',
+        'her',
+        'she',
+        'or',
+        'an',
+        'will',
+        'my',
+        'one',
+        'all',
+        'would',
+        'there',
+        'their',
+        'what',
+        'so',
+        'up',
+        'out',
+        'if',
+        'about',
+        'who',
+        'get',
+        'which',
+        'go',
+        'me',
+        'when',
+        'make',
+        'can',
+        'like',
+        'time',
+        'no',
+        'just',
+        'him',
+        'know',
+        'take',
+        'people',
+        'into',
+        'year',
+        'your',
+        'good',
+        'some',
+        'could',
+        'them',
+        'see',
+        'other',
+        'than',
+        'then',
+        'now',
+        'look',
+        'only',
+        'come',
+        'its',
+        'over',
+        'think',
+        'also',
+        'back',
+        'after',
+        'use',
+        'two',
+        'how',
+        'our',
+        'work',
+        'first',
+        'well',
+        'way',
+        'even',
+        'new',
+        'want',
+        'because',
+        'any',
+        'these',
+        'give',
+        'day',
+        'most',
+        'us',
+        'is',
+        'am',
+        'are',
+        'was',
+        'were',
+        'been',
+        'has',
+        'had',
+        'would',
+        'should',
+        'could',
+        'hello',
+        'world',
+    ],
+    [exports.Language.French]: [
+        'le',
+        'la',
+        'les',
+        'un',
+        'une',
+        'des',
+        'et',
+        'est',
+        'en',
+        'que',
+        'qui',
+        'dans',
+        'à',
+        'pour',
+        'pas',
+        'de',
+        'ce',
+        'il',
+        'elle',
+        'je',
+        'nous',
+        'vous',
+        'ils',
+        'elles',
+        'son',
+        'sa',
+        'ses',
+        'mon',
+        'ma',
+        'mes',
+        'ton',
+        'ta',
+        'tes',
+        'notre',
+        'votre',
+        'leur',
+        'leurs',
+        'du',
+        'au',
+        'aux',
+        'sur',
+        'sous',
+        'avec',
+        'sans',
+        'mais',
+        'ou',
+        'où',
+        'donc',
+        'car',
+        'comme',
+        'comment',
+        'quand',
+        'pourquoi',
+        'parce',
+        'plus',
+        'moins',
+        'très',
+        'trop',
+        'peu',
+        'aussi',
+        'bien',
+        'mal',
+        'si',
+        'tout',
+        'tous',
+        'toute',
+        'toutes',
+        'autre',
+        'autres',
+        'même',
+        'ici',
+        'là',
+        'cela',
+        'ceci',
+        'celui',
+        'celle',
+        'ceux',
+        'celles',
+        'rien',
+        'personne',
+        'quelque',
+        'quelques',
+        'plusieurs',
+        'beaucoup',
+        'être',
+        'avoir',
+        'faire',
+        'dire',
+        'venir',
+        'voir',
+        'vouloir',
+        'pouvoir',
+        'bonjour',
+        'monde',
+    ],
+    [exports.Language.Spanish]: [
+        'el',
+        'la',
+        'los',
+        'las',
+        'un',
+        'una',
+        'unos',
+        'unas',
+        'y',
+        'o',
+        'que',
+        'en',
+        'de',
+        'a',
+        'por',
+        'con',
+        'no',
+        'es',
+        'son',
+        'para',
+        'como',
+        'su',
+        'sus',
+        'mi',
+        'mis',
+        'tu',
+        'tus',
+        'nuestro',
+        'nuestra',
+        'nuestros',
+        'nuestras',
+        'vuestro',
+        'vuestra',
+        'vuestros',
+        'vuestras',
+        'del',
+        'al',
+        'este',
+        'esta',
+        'estos',
+        'estas',
+        'ese',
+        'esa',
+        'esos',
+        'esas',
+        'aquel',
+        'aquella',
+        'aquellos',
+        'aquellas',
+        'pero',
+        'más',
+        'menos',
+        'mucho',
+        'muchos',
+        'mucha',
+        'muchas',
+        'poco',
+        'pocos',
+        'poca',
+        'pocas',
+        'algún',
+        'alguna',
+        'algunos',
+        'algunas',
+        'ningún',
+        'ninguna',
+        'ningunos',
+        'ningunas',
+        'otro',
+        'otra',
+        'otros',
+        'otras',
+        'mismo',
+        'misma',
+        'mismos',
+        'mismas',
+        'tan',
+        'tanto',
+        'tanta',
+        'tantos',
+        'tantas',
+        'así',
+        'también',
+        'solo',
+        'solamente',
+        'hola',
+        'mundo',
+    ],
+    [exports.Language.German]: [
+        'der',
+        'die',
+        'das',
+        'ein',
+        'eine',
+        'einen',
+        'dem',
+        'den',
+        'des',
+        'einer',
+        'eines',
+        'und',
+        'ist',
+        'sind',
+        'war',
+        'waren',
+        'wird',
+        'werden',
+        'in',
+        'zu',
+        'mit',
+        'für',
+        'von',
+        'auf',
+        'als',
+        'um',
+        'an',
+        'aus',
+        'wie',
+        'bei',
+        'nach',
+        'bis',
+        'seit',
+        'vor',
+        'durch',
+        'über',
+        'unter',
+        'gegen',
+        'ohne',
+        'dass',
+        'weil',
+        'wenn',
+        'aber',
+        'oder',
+        'nur',
+        'noch',
+        'schon',
+        'auch',
+        'selbst',
+        'mir',
+        'dir',
+        'ihm',
+        'ihr',
+        'uns',
+        'euch',
+        'ihnen',
+        'mein',
+        'dein',
+        'sein',
+        'ihr',
+        'unser',
+        'euer',
+        'ihre',
+        'nicht',
+        'kein',
+        'keine',
+        'hallo',
+        'welt',
+    ],
+    [exports.Language.Italian]: [
+        'il',
+        'lo',
+        'la',
+        'i',
+        'gli',
+        'le',
+        'un',
+        'uno',
+        'una',
+        'e',
+        'è',
+        'che',
+        'di',
+        'a',
+        'per',
+        'in',
+        'con',
+        'su',
+        'non',
+        'sono',
+        'ho',
+        'mi',
+        'ha',
+        'si',
+        'ti',
+        'ci',
+        'vi',
+        'lo',
+        'la',
+        'li',
+        'le',
+        'ne',
+        'mio',
+        'mia',
+        'miei',
+        'mie',
+        'tuo',
+        'tua',
+        'tuoi',
+        'tue',
+        'suo',
+        'sua',
+        'suoi',
+        'sue',
+        'nostro',
+        'nostra',
+        'nostri',
+        'nostre',
+        'vostro',
+        'vostra',
+        'vostri',
+        'vostre',
+        'loro',
+        'questo',
+        'questa',
+        'questi',
+        'queste',
+        'quello',
+        'quella',
+        'quelli',
+        'quelle',
+        'ma',
+        'più',
+        'meno',
+        'molto',
+        'molti',
+        'molta',
+        'molte',
+        'poco',
+        'pochi',
+        'poca',
+        'poche',
+        'grande',
+        'grandi',
+        'piccolo',
+        'piccoli',
+        'piccola',
+        'piccole',
+        'anche',
+        'ciao',
+        'mondo',
+    ],
+    [exports.Language.Portuguese]: [
+        'o',
+        'a',
+        'os',
+        'as',
+        'um',
+        'uma',
+        'uns',
+        'umas',
+        'e',
+        'é',
+        'que',
+        'de',
+        'em',
+        'para',
+        'com',
+        'não',
+        'por',
+        'se',
+        'na',
+        'do',
+        'da',
+        'dos',
+        'das',
+        'no',
+        'nas',
+        'ao',
+        'aos',
+        'à',
+        'às',
+        'pelo',
+        'pela',
+        'pelos',
+        'pelas',
+        'este',
+        'esta',
+        'estes',
+        'estas',
+        'esse',
+        'essa',
+        'esses',
+        'essas',
+        'aquele',
+        'aquela',
+        'aqueles',
+        'aquelas',
+        'isto',
+        'isso',
+        'aquilo',
+        'meu',
+        'minha',
+        'meus',
+        'minhas',
+        'teu',
+        'tua',
+        'teus',
+        'tuas',
+        'seu',
+        'sua',
+        'seus',
+        'suas',
+        'nosso',
+        'nossa',
+        'nossos',
+        'nossas',
+        'vosso',
+        'vossa',
+        'vossos',
+        'vossas',
+        'dele',
+        'dela',
+        'deles',
+        'delas',
+        'nele',
+        'nela',
+        'neles',
+        'nelas',
+        'olá',
+        'mundo',
+    ],
+    [exports.Language.Dutch]: [
+        'de',
+        'het',
+        'een',
+        'is',
+        'en',
+        'van',
+        'in',
+        'te',
+        'dat',
+        'op',
+        'voor',
+        'niet',
+        'met',
+        'zijn',
+        'worden',
+        'deze',
+        'dit',
+        'door',
+        'er',
+        'ook',
+        'als',
+        'aan',
+        'maar',
+        'bij',
+        'nog',
+        'om',
+        'uit',
+        'zo',
+        'dan',
+        'over',
+        'na',
+        'toen',
+        'tot',
+        'werd',
+        'wel',
+        'nu',
+        'je',
+        'jij',
+        'jou',
+        'jouw',
+        'ik',
+        'mij',
+        'mijn',
+        'hij',
+        'hem',
+        'zijn',
+        'zij',
+        'haar',
+        'we',
+        'wij',
+        'ons',
+        'onze',
+        'jullie',
+        'hun',
+        'hen',
+        'hallo',
+        'wereld',
+    ],
+    [exports.Language.Unknown]: [],
+};
+// Common English words that should strongly bias toward English
+const commonEnglishWords = new Set([
+    'hello',
+    'world',
+    'the',
+    'this',
+    'that',
+    'there',
+    'their',
+    'they',
+    'them',
+    'then',
+    'and',
+    'but',
+    'or',
+    'not',
+    'what',
+    'when',
+    'where',
+    'who',
+    'why',
+    'how',
+    'all',
+    'any',
+    'every',
+    'some',
+    'many',
+    'much',
+    'few',
+    'little',
+    'other',
+    'another',
+    'such',
+    'even',
+    'only',
+    'just',
+    'also',
+    'very',
+    'too',
+    'quite',
+    'rather',
+    'enough',
+]);
+// Cache for previously analyzed texts
+const resultCache = new Map();
+// Normalizes a language profile for cosine similarity
+const normalizedProfiles = Object.entries(languageProfiles).reduce((acc, [lang, profile]) => {
+    if (lang !== exports.Language.Unknown) {
+        // Calculate magnitude for normalization
+        const entries = Object.entries(profile);
+        const magnitude = Math.sqrt(entries.reduce((sum, [, value]) => sum + value * value, 0));
+        // Create normalized map
+        const normalizedMap = new Map();
+        entries.forEach(([char, value]) => {
+            normalizedMap.set(char, value / magnitude);
+        });
+        acc[lang] = normalizedMap;
+    }
+    else {
+        acc[exports.Language.Unknown] = new Map();
+    }
+    return acc;
+}, {});
+// Handle very common language expressions directly
+const commonPhrases = new Map([
+    // English phrases
+    ['hello world', exports.Language.English],
+    ['hello', exports.Language.English],
+    ['hi there', exports.Language.English],
+    ['good morning', exports.Language.English],
+    ['good evening', exports.Language.English],
+    ['good night', exports.Language.English],
+    ['thank you', exports.Language.English],
+    ['how are you', exports.Language.English],
+    ['nice to meet you', exports.Language.English],
+    // Spanish phrases
+    ['hola mundo', exports.Language.Spanish],
+    ['hola', exports.Language.Spanish],
+    ['buenos días', exports.Language.Spanish],
+    ['buenas tardes', exports.Language.Spanish],
+    ['buenas noches', exports.Language.Spanish],
+    ['gracias', exports.Language.Spanish],
+    ['cómo estás', exports.Language.Spanish],
+    ['mucho gusto', exports.Language.Spanish],
+    // German phrases
+    ['hallo welt', exports.Language.German],
+    ['hallo', exports.Language.German],
+    ['guten morgen', exports.Language.German],
+    ['guten tag', exports.Language.German],
+    ['guten abend', exports.Language.German],
+    ['danke', exports.Language.German],
+    ['wie geht es dir', exports.Language.German],
+    // French phrases
+    ['bonjour le monde', exports.Language.French],
+    ['bonjour', exports.Language.French],
+    ['bonsoir', exports.Language.French],
+    ['merci', exports.Language.French],
+    ['comment allez-vous', exports.Language.French],
+    ['enchanté', exports.Language.French],
+    // Italian phrases
+    ['ciao mondo', exports.Language.Italian],
+    ['ciao', exports.Language.Italian],
+    ['buongiorno', exports.Language.Italian],
+    ['buonasera', exports.Language.Italian],
+    ['grazie', exports.Language.Italian],
+    ['come stai', exports.Language.Italian],
+    ['piacere', exports.Language.Italian],
+    // Portuguese phrases
+    ['olá mundo', exports.Language.Portuguese],
+    ['olá', exports.Language.Portuguese],
+    ['bom dia', exports.Language.Portuguese],
+    ['boa tarde', exports.Language.Portuguese],
+    ['boa noite', exports.Language.Portuguese],
+    ['obrigado', exports.Language.Portuguese],
+    ['como vai', exports.Language.Portuguese],
+    ['prazer em conhecê-lo', exports.Language.Portuguese],
+    // Dutch phrases
+    ['hallo wereld', exports.Language.Dutch],
+    ['hallo', exports.Language.Dutch],
+    ['goedemorgen', exports.Language.Dutch],
+    ['goedemiddag', exports.Language.Dutch],
+    ['goedenavond', exports.Language.Dutch],
+    ['dank je', exports.Language.Dutch],
+    ['hoe gaat het', exports.Language.Dutch],
+]);
+// Special handling for languages with unique characters
+const uniqueChars = {
+    [exports.Language.German]: ['ä', 'ö', 'ü', 'ß'],
+    [exports.Language.French]: ['é', 'è', 'ê', 'ë', 'à', 'â', 'ù', 'û', 'î', 'ï', 'ô', 'œ', 'ç'],
+    [exports.Language.Spanish]: ['ñ', 'á', 'é', 'í', 'ó', 'ú', 'ü', '¿', '¡'],
+    [exports.Language.Italian]: ['à', 'è', 'é', 'ì', 'í', 'î', 'ò', 'ó', 'ù', 'ú'],
+    [exports.Language.Portuguese]: ['ã', 'õ', 'á', 'à', 'â', 'é', 'ê', 'í', 'ó', 'ô', 'ú', 'ç'],
+};
+/**
+ * Detects the most likely language of a given text
+ *
+ * @param text The text to analyze
+ * @param minLength Minimum text length for reliable detection (default: 4)
+ * @param options Additional options for detection
+ * @returns Language detection result with confidence score
+ * @example
+ * detectLanguage('Bonjour le monde'); // { language: 'French', ... }
+ */
+function detectLanguage(text, minLength = 4, options = {
+    maxCharsToAnalyze: 500,
+    useCache: true,
+}) {
+    const { maxCharsToAnalyze = 500, useCache = true } = options;
+    // Caching shortcut
+    if (useCache && resultCache.has(text)) {
+        return resultCache.get(text);
+    }
+    // Empty string case
+    if (!text || text.trim().length === 0) {
+        return {
+            language: exports.Language.Unknown,
+            confidence: 0,
+            scores: Object.fromEntries(Object.values(exports.Language).map((l) => [l, l === exports.Language.Unknown ? 1 : 0])),
+        };
+    }
+    const lowerText = text.toLowerCase().trim();
+    // Phrase shortcut (exact match)
+    if (commonPhrases.has(lowerText)) {
+        const detected = commonPhrases.get(lowerText);
+        const result = {
+            language: detected,
+            confidence: 0.95,
+            scores: Object.fromEntries(Object.values(exports.Language).map((l) => [
+                l,
+                l === detected ? 0.95 : 0.05 / (Object.values(exports.Language).length - 1),
+            ])),
+        };
+        if (useCache)
+            cacheResult(text, result);
+        return result;
+    }
+    const isShort = text.length < minLength;
+    const analyzedText = text.slice(0, maxCharsToAnalyze).toLowerCase().replace(/[0-9]/g, '');
+    const charCount = new Map();
+    let totalChars = 0;
+    const bigramSet = new Set([
+        'th',
+        'he',
+        'in',
+        'er',
+        'an',
+        'en',
+        'ch',
+        'de',
+        'ei',
+        'te',
+        'st',
+        'le',
+        'ou',
+        'qu',
+        'je',
+        'ai',
+        'ui',
+        'ie',
+        're',
+        'oo',
+    ]);
+    for (let i = 0; i < analyzedText.length; i++) {
+        const char = analyzedText[i];
+        if (/[a-zäöüßàáâéèêëïîìíñóòôùúûç]/i.test(char)) {
+            charCount.set(char, (charCount.get(char) || 0) + 1);
+            totalChars++;
+            if (i < analyzedText.length - 1) {
+                const bigram = analyzedText.substring(i, i + 2);
+                if (bigramSet.has(bigram)) {
+                    charCount.set(bigram, (charCount.get(bigram) || 0) + 0.5);
+                    totalChars += 0.25;
+                }
+            }
+        }
+    }
+    if (totalChars < 2) {
+        return {
+            language: exports.Language.Unknown,
+            confidence: 0.1,
+            scores: Object.fromEntries(Object.values(exports.Language).map((l) => [
+                l,
+                l === exports.Language.Unknown ? 0.9 : 0.1 / (Object.values(exports.Language).length - 1),
+            ])),
+        };
+    }
+    for (const [lang, chars] of Object.entries(uniqueChars)) {
+        for (const char of chars) {
+            if (analyzedText.includes(char)) {
+                charCount.set('unique_' + lang, (charCount.get('unique_' + lang) || 0) + 18);
+                totalChars += 3;
+            }
+        }
+    }
+    const words = analyzedText.split(/\s+/);
+    // Skip gibberish check if any language keyword is present
+    const languageKeywords = [
+        ['english', exports.Language.English],
+        ['deutsch', exports.Language.German],
+        ['german', exports.Language.German],
+        ['français', exports.Language.French],
+        ['french', exports.Language.French],
+        ['español', exports.Language.Spanish],
+        ['spanish', exports.Language.Spanish],
+        ['italiano', exports.Language.Italian],
+        ['italian', exports.Language.Italian],
+        ['português', exports.Language.Portuguese],
+        ['portuguese', exports.Language.Portuguese],
+        ['nederlands', exports.Language.Dutch],
+        ['dutch', exports.Language.Dutch],
+    ];
+    const hasKeyword = languageKeywords.some(([kw]) => analyzedText.includes(kw));
+    // Gibberish check: if no stopwords from any language and more than 2 words, return unknown
+    if (!hasKeyword) {
+        const stopwordHits = Object.values(exports.Language)
+            .filter((l) => l !== exports.Language.Unknown)
+            .some((lang) => words.some((word) => stopwords[lang].includes(word)));
+        if (!stopwordHits && words.length > 2) {
+            return {
+                language: exports.Language.Unknown,
+                confidence: 0,
+                scores: Object.fromEntries(Object.values(exports.Language).map((l) => [l, l === exports.Language.Unknown ? 1 : 0])),
+            };
+        }
+    }
+    for (const lang of Object.values(exports.Language).filter((l) => l !== exports.Language.Unknown)) {
+        for (const word of words) {
+            if (stopwords[lang].includes(word)) {
+                const boost = lang === exports.Language.English && commonEnglishWords.has(word) ? 36 : 28;
+                charCount.set(`stopword_${lang}`, (charCount.get(`stopword_${lang}`) || 0) + boost);
+                totalChars += 3;
+            }
+        }
+    }
+    const keywords = [
+        ['english', exports.Language.English],
+        ['deutsch', exports.Language.German],
+        ['german', exports.Language.German],
+        ['français', exports.Language.French],
+        ['french', exports.Language.French],
+        ['español', exports.Language.Spanish],
+        ['spanish', exports.Language.Spanish],
+        ['italiano', exports.Language.Italian],
+        ['italian', exports.Language.Italian],
+        ['português', exports.Language.Portuguese],
+        ['portuguese', exports.Language.Portuguese],
+        ['nederlands', exports.Language.Dutch],
+        ['dutch', exports.Language.Dutch],
+    ];
+    for (const [kw, lang] of keywords) {
+        if (analyzedText.includes(kw)) {
+            charCount.set(`keyword_${lang}`, (charCount.get(`keyword_${lang}`) || 0) + 70);
+            totalChars += 8;
+        }
+    }
+    const freqMap = normalizeVector(charCount);
+    const scores = {};
+    let maxScore = 0;
+    let detected = exports.Language.Unknown;
+    for (const lang of Object.values(exports.Language)) {
+        if (lang === exports.Language.Unknown) {
+            scores[lang] = 0;
+            continue;
+        }
+        const profile = normalizedProfiles[lang];
+        let score = 0;
+        for (const [token, normFreq] of freqMap.entries()) {
+            if (token.startsWith(`unique_${lang}`))
+                score += normFreq * 2;
+            else if (token.startsWith(`stopword_${lang}`))
+                score += normFreq * 3;
+            else if (token.startsWith(`keyword_${lang}`))
+                score += normFreq * 5;
+            else if (profile.has(token))
+                score += normFreq * profile.get(token);
+        }
+        scores[lang] = score;
+        if (score > maxScore) {
+            maxScore = score;
+            detected = lang;
+        }
+    }
+    // Set gibberish threshold to 0.4
+    if (maxScore < 0.4) {
+        detected = exports.Language.Unknown;
+        scores[exports.Language.Unknown] = 1;
+    }
+    const sumScores = Object.values(scores).reduce((a, b) => a + b, 0);
+    let confidence = sumScores > 0 ? maxScore / sumScores : 0;
+    if (isShort)
+        confidence *= 0.8;
+    // For long texts, boost confidence
+    if (analyzedText.length > 40)
+        confidence = Math.min(confidence * 1.1, 1.0);
+    confidence =
+        confidence > 0.7 ? 0.95 : confidence > 0.55 ? 0.85 : confidence > 0.4 ? 0.7 : confidence;
+    const result = {
+        language: detected,
+        confidence,
+        scores,
+    };
+    if (useCache)
+        cacheResult(text, result);
+    return result;
+}
+// --- UTILS ---
+function normalizeVector(map) {
+    const magnitude = Math.sqrt([...map.values()].reduce((sum, val) => sum + val * val, 0));
+    const normMap = new Map();
+    for (const [key, val] of map.entries()) {
+        normMap.set(key, val / magnitude);
+    }
+    return normMap;
+}
+function cacheResult(text, result) {
+    if (resultCache.size >= 100) {
+        const firstKey = resultCache.keys().next().value;
+        if (typeof firstKey === 'string') {
+            resultCache.delete(firstKey);
+        }
+    }
+    resultCache.set(text, result);
+}
+
+const { values: values$1 } = regex;
+/**
+ * Clear punctuations from a string and replaces it with a whitespace character or returns an array of strings.
+ *
+ * @param text String input to clear from punctuation.
+ * @returns Either a string or an array of strings cleared from punctuations based on the arguments passed.
+ * @example
+ * clear('Hello, world!'); // 'hello world'
+ */
+function clear(text) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    // Create an array of words
+    const wordsArray = text.split(values$1.punctuation);
+    // Filter wordsArray and remove punctuations
+    const clearWords = wordsArray.map((word) => {
+        word = word.trim().toLowerCase().replace(values$1.punctuation, '');
+        return word;
+    });
+    return clearWords.join(' ');
+}
+
+/**
+ * Return a boolean value number of the letters in a string.
+ *
+ * @param text String input to get letters count from.
+ * @param countNumbers boolean value to determine if numbers should be counted as letters.
+ *
+ * @returns Number of letters and numbers (if requested) in a string.
+ * @example
+ * count('Hello, world!'); // 10
+ * count('Hello0 world', true); // 11
+ */
+function count(text, countNumbers = false) {
+    // Check string length
+    if (!text.length)
+        return 0;
+    // Create a temp number.
+    let temp = 0;
+    // Clear the string and split the letters into an array.
+    const cleared = clear(text).split('');
+    // Loop through the letters array.
+    cleared.forEach((letter) => {
+        // Check if countNumbers is included
+        if (!countNumbers) {
+            // Count letters only
+            if (!(/[a-z]/g.test(letter) || /[A-Z]/g.test(letter))) {
+                return;
+            }
+            temp++;
+            return;
+        }
+        // Count letters with numbers.
+        if (!(/[a-z]/g.test(letter) || /[A-Z]/g.test(letter) || /[0-9]/g.test(letter)))
+            return;
+        temp++;
+    });
+    // Return the number of letters.
+    return temp;
+}
+/**
+ * Counts the number of words in a string.
+ * Words are defined as sequences of letters, numbers, and apostrophes separated by whitespace.
+ *
+ * @param text String input to count words from
+ * @returns Number of words in the string
+ * @example
+ * countWords('Hello, world!'); // 2
+ */
+function countWords(text) {
+    if (!(text === null || text === void 0 ? void 0 : text.trim()))
+        return 0;
+    // If the text contains only punctuation, return 0
+    if (!/[a-zA-Z0-9]/.test(text))
+        return 0;
+    return text
+        .trim()
+        .split(/\s+/)
+        .filter((word) => word.length > 0 && /[a-zA-Z0-9]/.test(word)).length;
+}
+/**
+ * Counts the number of sentences in a string.
+ * Sentences are defined as sequences of text ending with ., !, or ? followed by whitespace or end of string.
+ * Text without any sentence-ending punctuation is considered to be a single sentence.
+ *
+ * @param text String input to count sentences from
+ * @returns Number of sentences in the string
+ * @example
+ * countSentences('Hello world! How are you?'); // 2
+ */
+function countSentences(text) {
+    const trimmed = text === null || text === void 0 ? void 0 : text.trim();
+    if (!trimmed)
+        return 0;
+    // If there's no sentence-ending punctuation but there is text, it's considered one sentence
+    if (!/[.!?]/.test(trimmed))
+        return 1;
+    // Walk the string manually instead of using a backtracking regex split: a
+    // lookahead-based `[.!?]+(?=\s|$)` pattern runs in quadratic time on long
+    // runs of punctuation that aren't followed by whitespace (ReDoS).
+    const punctuationRun = /[.!?]+/g;
+    let sentences = 0;
+    let segmentStart = 0;
+    let match;
+    while ((match = punctuationRun.exec(trimmed)) !== null) {
+        const runEnd = match.index + match[0].length;
+        const nextChar = trimmed[runEnd];
+        const isBoundary = nextChar === undefined || /\s/.test(nextChar);
+        if (isBoundary) {
+            if (trimmed.slice(segmentStart, match.index).trim().length > 0)
+                sentences++;
+            segmentStart = runEnd;
+        }
+    }
+    if (trimmed.slice(segmentStart).trim().length > 0)
+        sentences++;
+    return sentences;
+}
+
+// Estimates a word's syllable count by counting vowel groups (a run of
+// consecutive vowels counts as one syllable), adjusting for a silent
+// trailing 'e' (e.g. "like" is one syllable, not two). This is a cheap
+// heuristic, not a dictionary lookup -- it gets simple, common words right
+// ("cat" -> 1, "table" -> 2, "beautiful" -> 3) but is known to
+// misestimate real irregulars (e.g. "rhythm", which has no written vowel
+// in its second syllable). Readability scores computed from it should be
+// read as estimates, not precise measurements, for exactly that reason.
+function estimateSyllables(word) {
+    var _a;
+    const lower = word.toLowerCase().replace(/[^a-z]/g, '');
+    if (!lower)
+        return 0;
+    const vowelGroups = (_a = lower.match(/[aeiouy]+/g)) !== null && _a !== void 0 ? _a : [];
+    let syllables = vowelGroups.length;
+    // "table" ends in "le" after a consonant, which counts as its own
+    // syllable ("ta-ble"), so only drop a trailing silent 'e' when it's NOT
+    // part of that pattern.
+    if (lower.endsWith('e') && !lower.endsWith('le') && syllables > 1) {
+        syllables--;
+    }
+    return Math.max(syllables, 1);
+}
+/**
+ * Analyzes text and returns comprehensive statistics about it
+ *
+ * @param text The text to analyze
+ * @param wordsPerMinute Reading speed in words per minute (default: 200)
+ * @returns TextStatistics object with various metrics
+ * @example
+ * getTextStats('Hello world! This is a test.');
+ * // {
+ * //   characterCount: 28,
+ * //   characterCountNoSpaces: 23,
+ * //   letterCount: 21,
+ * //   alphanumericCount: 21,
+ * //   wordCount: 6,
+ * //   sentenceCount: 2,
+ * //   paragraphCount: 1,
+ * //   averageWordLength: 3.5,
+ * //   averageSentenceLength: 3,
+ * //   readingTimeSeconds: 2,
+ * //   readingTimeFormatted: '2 sec',
+ * //   fleschReadingEase: 105.1,
+ * //   fleschKincaidGrade: -0.7
+ * // }
+ */
+function getTextStats(text, wordsPerMinute = 200) {
+    // Handle empty input
+    if (!text || !text.trim()) {
+        return {
+            characterCount: 0,
+            characterCountNoSpaces: 0,
+            letterCount: 0,
+            alphanumericCount: 0,
+            wordCount: 0,
+            sentenceCount: 0,
+            paragraphCount: 0,
+            averageWordLength: 0,
+            averageSentenceLength: 0,
+            readingTimeSeconds: 0,
+            readingTimeFormatted: '0 sec',
+            fleschReadingEase: 0,
+            fleschKincaidGrade: 0,
+        };
+    }
+    // Basic counts
+    const characterCount = text.length;
+    const characterCountNoSpaces = text.replace(/\s/g, '').length;
+    const letterCount = count(text);
+    const alphanumericCount = count(text, true);
+    const wordCount = countWords(text);
+    const sentenceCount = countSentences(text);
+    // Paragraph count (separated by 2+ newlines)
+    const paragraphCount = text.split(/\n\s*\n/).filter((p) => p.trim().length > 0).length || 1;
+    // Calculate averages - fix for more accurate calculation
+    let totalWordLength = 0;
+    const words = text.split(/\s+/).filter((word) => word.length > 0);
+    for (const word of words) {
+        // Count only alphanumeric characters in words
+        totalWordLength += word.replace(/[^a-zA-Z0-9]/g, '').length;
+    }
+    const averageWordLength = wordCount > 0 ? Math.round((totalWordLength / wordCount) * 10) / 10 : 0;
+    const averageSentenceLength = sentenceCount > 0 ? Math.round((wordCount / sentenceCount) * 10) / 10 : 0;
+    // Readability scores (Flesch Reading Ease / Flesch-Kincaid Grade Level),
+    // both needing a total syllable count across the same word list used
+    // for averageWordLength above.
+    let totalSyllables = 0;
+    for (const word of words) {
+        const cleaned = word.replace(/[^a-zA-Z]/g, '');
+        if (cleaned)
+            totalSyllables += estimateSyllables(cleaned);
+    }
+    const canScore = wordCount > 0 && sentenceCount > 0;
+    const wordsPerSentence = canScore ? wordCount / sentenceCount : 0;
+    const syllablesPerWord = canScore ? totalSyllables / wordCount : 0;
+    const fleschReadingEase = canScore
+        ? Math.round((206.835 - 1.015 * wordsPerSentence - 84.6 * syllablesPerWord) * 10) / 10
+        : 0;
+    const fleschKincaidGrade = canScore
+        ? Math.round((0.39 * wordsPerSentence + 11.8 * syllablesPerWord - 15.59) * 10) / 10
+        : 0;
+    // Calculate reading time
+    const wordsPerSecond = wordsPerMinute / 60;
+    const readingTimeSeconds = Math.round(wordCount / wordsPerSecond);
+    // Format reading time
+    const readingTimeFormatted = formatReadingTime(readingTimeSeconds);
+    return {
+        characterCount,
+        characterCountNoSpaces,
+        letterCount,
+        alphanumericCount,
+        wordCount,
+        sentenceCount,
+        paragraphCount,
+        averageWordLength,
+        averageSentenceLength,
+        readingTimeSeconds,
+        readingTimeFormatted,
+        fleschReadingEase,
+        fleschKincaidGrade,
+    };
+}
+/**
+ * Formats reading time in seconds to a readable string
+ *
+ * @param seconds Total seconds
+ * @returns Formatted string (e.g., "2 min 30 sec")
+ */
+function formatReadingTime(seconds) {
+    if (seconds === 0)
+        return '0 sec';
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes === 0) {
+        return `${remainingSeconds} sec`;
+    }
+    else if (remainingSeconds === 0) {
+        return `${minutes} min`;
+    }
+    else {
+        return `${minutes} min ${remainingSeconds} sec`;
+    }
+}
+
+/**
+ * Counts how many times each word appears in a piece of text. Case-insensitive
+ * by default -- "The" and "the" count as the same word, since this reuses
+ * `clear()`'s existing lowercasing/punctuation-stripping split rather than a
+ * separate tokenizer.
+ *
+ * @param text Text to count word frequency in.
+ * @returns A map of each distinct word to how many times it appears, in the
+ * order each word first appeared.
+ * @example
+ * wordFrequency('the cat sat on the mat');
+ * // { the: 2, cat: 1, sat: 1, on: 1, mat: 1 }
+ */
+function wordFrequency(text) {
+    var _a;
+    if (!(text === null || text === void 0 ? void 0 : text.trim()))
+        return {};
+    const frequency = {};
+    for (const word of clear(text).split(' ')) {
+        if (!word)
+            continue;
+        frequency[word] = ((_a = frequency[word]) !== null && _a !== void 0 ? _a : 0) + 1;
+    }
+    return frequency;
+}
+
+// Trailing punctuation that's almost always part of the surrounding
+// sentence, not the match itself (e.g. a sentence-ending period right
+// after an email address or URL). Shared by extractEmails, extractUrls,
+// and scan's email matching.
+const trailingPunctuationChars = new Set([...'.,;:!?)]}\'"']);
+/**
+ * Finds maximal runs of characters from `allowedChars` in `text`, trimming
+ * leading/trailing spaces from each run before returning it, along with
+ * each run's position in `text`. A single linear pass, no regex
+ * backtracking risk — shared by any scanner that just needs "runs of
+ * these characters" (phone numbers, credit cards, IPv4 addresses, JWTs).
+ */
+function scanMaximalRunsWithPositions(text, allowedChars) {
+    const matches = [];
+    let i = 0;
+    while (i < text.length) {
+        if (!allowedChars.has(text[i])) {
+            i++;
+            continue;
+        }
+        let end = i;
+        while (end < text.length && allowedChars.has(text[end]))
+            end++;
+        let start = i;
+        while (start < end && text[start] === ' ')
+            start++;
+        let trimmedEnd = end;
+        while (trimmedEnd > start && text[trimmedEnd - 1] === ' ')
+            trimmedEnd--;
+        if (trimmedEnd > start) {
+            matches.push({ value: text.slice(start, trimmedEnd), start, end: trimmedEnd });
+        }
+        i = end;
+    }
+    return matches;
+}
+/**
+ * Trims trailing characters in `chars` from the end of `value`. Used to
+ * strip sentence-ending punctuation that a scanner swept up along with a
+ * real match (e.g. a period right after an email address or phone number).
+ */
+function stripTrailing(value, chars) {
+    let end = value.length;
+    while (end > 0 && chars.has(value[end - 1]))
+        end--;
+    return value.slice(0, end);
+}
+/**
+ * Finds `prefix`-anchored tokens (e.g. `@mentions`, `#hashtags`): a single
+ * `prefix` character followed by a run of one or more `bodyChars`. A match
+ * only starts when the prefix isn't immediately preceded by a body
+ * character itself, so e.g. `findPrefixedTokens('user@example.com', '@',
+ * wordChars)` doesn't treat the email's `@` as a token start. A single
+ * linear pass, no regex backtracking risk.
+ */
+function findPrefixedTokens(text, prefix, bodyChars) {
+    const candidates = [];
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] !== prefix)
+            continue;
+        if (i > 0 && bodyChars.has(text[i - 1]))
+            continue;
+        let end = i + 1;
+        while (end < text.length && bodyChars.has(text[end]))
+            end++;
+        if (end > i + 1)
+            candidates.push(text.slice(i, end));
+        i = end - 1;
+    }
+    return candidates;
+}
+
+/**
+ * Validates if a string is a valid email address according to RFC 5322 standards.
+ *
+ * This function performs comprehensive validation including:
+ * - Basic email structure (local part + @ + domain)
+ * - Valid characters in local part and domain
+ * - Domain must contain at least one dot
+ * - No consecutive dots
+ * - No trailing dots or hyphens
+ * - Length limits (local part ≤ 64 chars, domain ≤ 255 chars)
+ * - Non-ASCII character rejection
+ *
+ * @param text - The string to validate as an email address
+ * @returns boolean indicating if the string is a valid email address
+ *
+ * @example
+ * ```typescript
+ * isEmail('user@example.com')     // true
+ * isEmail('user.name@example.com') // true
+ * isEmail('user+tag@example.com') // true
+ * isEmail('plainaddress')         // false
+ * isEmail('@example.com')         // false
+ * isEmail('user@')               // false
+ * ```
+ */
+function isEmail(text) {
+    if (!text || typeof text !== 'string') {
+        return false;
+    }
+    const email = text.trim();
+    // Reject non-ASCII characters
+    if (/[^\x20-\x7E]/.test(email)) {
+        return false;
+    }
+    const emailRegex = /^(?!.*\.{2})[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+        return false;
+    }
+    const [localPart, domain] = email.split('@');
+    if (!localPart || !domain)
+        return false;
+    if (localPart.length > 64 || domain.length > 255)
+        return false;
+    if (domain.startsWith('-') || domain.endsWith('-'))
+        return false;
+    if (domain.startsWith('.') || domain.endsWith('.'))
+        return false;
+    return true;
+}
+
+/**
+ * Validates if a string is structurally a valid phone number.
+ *
+ * This performs syntactic validation only — it does not verify that a
+ * country calling code is real, that the digit count matches a specific
+ * country's numbering plan, or that the number is actually assigned or
+ * reachable (the same scope `isEmail` and `isUrl` use).
+ *
+ * - With a leading `+` (an explicit country code, e.g. E.164): the
+ *   remaining digits must be between 7 and 15, matching E.164's real
+ *   bounds — some countries have numbers as short as 7 digits total.
+ * - Without a leading `+` (a bare local number): the digits must be
+ *   between 10 and 15, since there's no declared country code to trust —
+ *   this requires something long enough to plausibly include an area or
+ *   city code rather than a bare subscriber number.
+ * - Separators (spaces, dashes, dots, parentheses) are allowed and
+ *   stripped before counting digits.
+ *
+ * @param text - The string to validate as a phone number
+ * @returns boolean indicating if the string is a structurally valid phone number
+ *
+ * @example
+ * ```typescript
+ * isPhoneNumber('+1-202-555-0173')  // true
+ * isPhoneNumber('(202) 555 0173')   // true
+ * isPhoneNumber('5550173')          // false (too short, no area code)
+ * ```
+ */
+function isPhoneNumber(text) {
+    if (!text || typeof text !== 'string') {
+        return false;
+    }
+    const trimmed = text.trim();
+    // Only digits, spaces, dashes, dots, and parentheses are allowed, with an
+    // optional single leading '+' to signal an explicit country code.
+    if (!/^\+?[\d\s().-]+$/.test(trimmed)) {
+        return false;
+    }
+    const digits = trimmed.replace(/\D/g, '');
+    if (trimmed.startsWith('+')) {
+        return digits.length >= 7 && digits.length <= 15;
+    }
+    return digits.length >= 10 && digits.length <= 15;
+}
+
+// ---- Email --------------------------------------------------------------
+// Characters allowed in an email's local-part / domain, checked one
+// character at a time (O(1) per check) rather than with a `+`-quantified
+// regex scanned across the whole string, which is vulnerable to ReDoS on
+// long runs of a single allowed character (e.g. many repeated '!').
+const localPartChars = new Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.!#$%&'*+/=?^_`{|}~-");
+const domainChars = new Set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-');
+/**
+ * Finds "local-part@domain"-shaped email matches in text, validated with
+ * {@link isEmail}, along with each match's position. Shared by
+ * `extractEmails` and `scan`.
+ */
+function findEmailMatches(text) {
+    const matches = [];
+    let runStart = 0;
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (char === '@' && i > runStart) {
+            let end = i + 1;
+            while (end < text.length && domainChars.has(text[end]))
+                end++;
+            if (end > i + 1) {
+                const rawValue = text.slice(runStart, end);
+                const value = stripTrailing(rawValue, trailingPunctuationChars);
+                if (isEmail(value)) {
+                    matches.push({ value, start: runStart, end: runStart + value.length });
+                }
+            }
+            i = end - 1;
+            runStart = end;
+            continue;
+        }
+        if (!localPartChars.has(char))
+            runStart = i + 1;
+    }
+    return matches;
+}
+// ---- Phone number ---------------------------------------------------------
+// Characters allowed in a phone number candidate, checked one character at
+// a time (O(1) per check, no regex backtracking risk) rather than with a
+// `+`-quantified regex scanned across the whole string.
+const phoneChars = new Set([...'+0123456789 ().-']);
+const dotChars = new Set(['.']);
+/**
+ * Finds phone-number-shaped matches, validated with {@link isPhoneNumber},
+ * along with each match's position. A trailing '.' is always stripped
+ * first: it's a valid mid-number separator (as in '555.123.4567') but also
+ * commonly a sentence-ending period, which the character-run scan can't
+ * otherwise tell apart, and a phone number never legitimately ends on one.
+ */
+function findPhoneNumberMatches(text) {
+    return scanMaximalRunsWithPositions(text, phoneChars)
+        .map((match) => {
+        const value = stripTrailing(match.value, dotChars);
+        return { value, start: match.start, end: match.start + value.length };
+    })
+        .filter((match) => isPhoneNumber(match.value));
+}
+// ---- Credit card ----------------------------------------------------------
+// Characters allowed in a credit card candidate: digits and the separators
+// commonly used when writing one out (space, dash). No dots/parens/plus —
+// unlike phone numbers, card numbers don't use them.
+const creditCardChars = new Set([...'0123456789 -']);
+// Luhn checksum, used to tell an actual card number apart from an arbitrary
+// digit sequence of the same length (order IDs, invoice numbers, ...).
+function isValidLuhn(digits) {
+    let sum = 0;
+    let shouldDouble = false;
+    for (let i = digits.length - 1; i >= 0; i--) {
+        let digit = digits.charCodeAt(i) - 48;
+        if (shouldDouble) {
+            digit *= 2;
+            if (digit > 9)
+                digit -= 9;
+        }
+        sum += digit;
+        shouldDouble = !shouldDouble;
+    }
+    return sum % 10 === 0;
+}
+/**
+ * Finds credit-card-shaped matches whose digits (ignoring spaces/dashes)
+ * fall in the standard 13-19 digit range (ISO/IEC 7812) and pass a Luhn
+ * checksum, along with each match's position.
+ */
+function findCreditCardMatches(text) {
+    return scanMaximalRunsWithPositions(text, creditCardChars).filter((match) => {
+        const digits = match.value.replace(/[ -]/g, '');
+        return digits.length >= 13 && digits.length <= 19 && isValidLuhn(digits);
+    });
+}
+// ---- API key / token -------------------------------------------------------
+// Characters allowed after a known API key/token prefix — letters, digits,
+// and underscore. Anything else ends the run.
+const tokenChars = new Set([...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_']);
+// Known, high-specificity secret prefixes and the minimum total match
+// length (prefix + token) required before it counts as a match.
+// Deliberately narrow and prefix-based rather than a generic "looks
+// random" entropy heuristic, which produces heavy false positives on
+// hashes, UUIDs, and ordinary identifiers (see #320's research notes).
+const apiKeyPrefixes = [
+    { prefix: 'AKIA', minLength: 20 }, // AWS access key: AKIA + 16 chars
+    { prefix: 'ghp_', minLength: 40 }, // GitHub classic PAT: ghp_ + 36 chars
+    { prefix: 'github_pat_', minLength: 82 }, // GitHub fine-grained PAT
+    { prefix: 'sk_live_', minLength: 32 }, // Stripe live secret key
+];
+/**
+ * Finds API key/token matches: a known prefix followed by a run of token
+ * characters meeting that prefix's minimum length, found via
+ * `indexOf`-based scanning rather than a regex alternation, along with
+ * each match's position.
+ */
+function findApiKeyMatches(text) {
+    const matches = [];
+    for (const { prefix, minLength } of apiKeyPrefixes) {
+        let searchFrom = 0;
+        while (searchFrom < text.length) {
+            const start = text.indexOf(prefix, searchFrom);
+            if (start === -1)
+                break;
+            let end = start + prefix.length;
+            while (end < text.length && tokenChars.has(text[end]))
+                end++;
+            if (end - start >= minLength)
+                matches.push({ value: text.slice(start, end), start, end });
+            // end is always > start here: every prefix is non-empty, so end
+            // starts at start + prefix.length before the token-char loop even
+            // runs, unlike a scan that could match zero characters.
+            searchFrom = end;
+        }
+    }
+    return matches;
+}
+// ---- IPv4 -------------------------------------------------------------------
+// Characters allowed in an IPv4 candidate: digits and the dot separator.
+const ipv4Chars = new Set([...'0123456789.']);
+/**
+ * Validates a candidate as exactly 4 dot-separated octets, each 0-255, with
+ * no leading zeros (e.g. '01') other than a bare '0' -- some parsers treat
+ * a leading-zero octet as octal, so rejecting it outright avoids that
+ * ambiguity rather than picking a side. Returns the 4 parsed octets, or
+ * `null` if the candidate isn't a validly-shaped IPv4 address.
+ */
+function parseIpv4Octets(candidate) {
+    const parts = candidate.split('.');
+    if (parts.length !== 4)
+        return null;
+    const octets = [];
+    for (const part of parts) {
+        if (part.length === 0 || part.length > 3)
+            return null;
+        if (part.length > 1 && part[0] === '0')
+            return null;
+        // No separate "is this all digits" check needed: candidates only ever
+        // reach here already restricted to ipv4Chars (digits and '.') by the
+        // scan that produced them, so every part is guaranteed digits-only.
+        const value = Number(part);
+        if (value > 255)
+            return null;
+        octets.push(value);
+    }
+    return octets;
+}
+// RFC 1918 private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), plus
+// loopback (127.0.0.0/8) and link-local (169.254.0.0/16) -- never matched,
+// with no opt-in override, since these are non-globally-unique addresses
+// that appear on every organization's own network. Masking one in a debug
+// log actively destroys its usefulness (e.g. "which internal server made
+// this request") with no corresponding privacy benefit, unlike a public IP.
+function isPrivateOrReservedIpv4(octets) {
+    const [a, b] = octets;
+    if (a === 10)
+        return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31)
+        return true; // 172.16.0.0/12
+    if (a === 192 && b === 168)
+        return true; // 192.168.0.0/16
+    if (a === 127)
+        return true; // 127.0.0.0/8 (loopback)
+    if (a === 169 && b === 254)
+        return true; // 169.254.0.0/16 (link-local)
+    return false;
+}
+/**
+ * Finds public IPv4 address matches -- candidates that parse as 4 valid
+ * octets and aren't a private/loopback/link-local address -- along with
+ * each match's position.
+ */
+function findPublicIpv4Matches(text) {
+    return scanMaximalRunsWithPositions(text, ipv4Chars).filter((match) => {
+        const octets = parseIpv4Octets(match.value);
+        return octets !== null && !isPrivateOrReservedIpv4(octets);
+    });
+}
+// ---- JWT --------------------------------------------------------------------
+// Characters allowed in a JWT candidate: the base64url alphabet plus the
+// two dots separating its three segments.
+const jwtChars = new Set([...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.']);
+/**
+ * Decodes a base64url segment (the `-`/`_` alphabet, no padding) to a UTF-8
+ * string using the standard Web Crypto/encoding globals available in both
+ * Node and browsers -- same "universal Web API, not a Node-only import"
+ * approach as {@link randomString}'s use of `globalThis.crypto`. Returns
+ * `null` rather than throwing on invalid input, since this runs against
+ * attacker-controlled candidate text.
+ */
+function base64UrlDecode(segment) {
+    try {
+        const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+        return globalThis.atob(padded);
+    }
+    catch (_a) {
+        return null;
+    }
+}
+/**
+ * Validates a candidate as a structurally-real JWT: exactly 3 non-empty
+ * dot-separated segments, where the first (the header) base64url-decodes
+ * to JSON containing a string `alg` field.
+ *
+ * Deliberately does not verify the signature, check expiry, or otherwise
+ * confirm the token is real/valid -- only that it's shaped like one.
+ */
+function isValidJwt(candidate) {
+    const segments = candidate.split('.');
+    if (segments.length !== 3 || segments.some((segment) => segment.length === 0))
+        return false;
+    const decodedHeader = base64UrlDecode(segments[0]);
+    if (decodedHeader === null)
+        return false;
+    try {
+        const header = JSON.parse(decodedHeader);
+        return (typeof header === 'object' &&
+            header !== null &&
+            'alg' in header &&
+            typeof header.alg === 'string');
+    }
+    catch (_a) {
+        return false;
+    }
+}
+/**
+ * Finds structurally-valid JWT matches, validated with {@link isValidJwt},
+ * along with each match's position.
+ */
+function findJwtMatches(text) {
+    return scanMaximalRunsWithPositions(text, jwtChars).filter((match) => isValidJwt(match.value));
+}
+// ---- Shared dispatch, used by both redact() and scan() ---------------------
+// Also the priority order for resolving overlapping matches of different
+// types (e.g. a digit run shaped like both a phone number and a credit
+// card): whichever type appears first here wins, see findMatchesByType.
+const findersByType = {
+    email: findEmailMatches,
+    phone: findPhoneNumberMatches,
+    creditCard: findCreditCardMatches,
+    apiKey: findApiKeyMatches,
+    ip: findPublicIpv4Matches,
+    jwt: findJwtMatches,
+};
+/**
+ * Runs every detector in `types` over `text` and returns all their matches
+ * together, each tagged with the type that found it, in detector-priority
+ * order (not yet sorted by position) -- shared by `redact` and `scan` so
+ * they can't drift out of sync on which detector backs which type.
+ */
+function findMatchesByType(text, types) {
+    const matches = [];
+    for (const type of Object.keys(findersByType)) {
+        if (!types.includes(type))
+            continue;
+        for (const match of findersByType[type](text))
+            matches.push(Object.assign({ type }, match));
+    }
+    return matches;
+}
+
+/**
+ * Validates if a string is a valid URL according to standard specifications.
+ *
+ * This function performs comprehensive validation including:
+ * - Protocol validation (http:// or https:// required)
+ * - Domain structure validation
+ * - Path, query parameter, and fragment handling
+ * - Special character checks
+ * - Length limits and format requirements
+ *
+ * @param text - The string to validate as a URL
+ * @returns boolean indicating if the string is a valid URL
+ *
+ * @example
+ * ```typescript
+ * isUrl('https://example.com')                      // true
+ * isUrl('http://example.com/path')                  // true
+ * isUrl('https://example.com/path?query=123')       // true
+ * isUrl('https://sub.domain.example.co.uk/path')    // true
+ * isUrl('ftp://example.com')                        // false (only http/https supported)
+ * isUrl('example.com')                              // false (protocol required)
+ * isUrl('not a url')                                // false
+ * ```
+ */
+function isUrl(text) {
+    if (!text || typeof text !== 'string') {
+        return false;
+    }
+    const url = text.trim();
+    const urlRegex = /[^\x20-\x7E]/;
+    // Reject non-ASCII characters
+    if (urlRegex.test(url)) {
+        return false;
+    }
+    // Check for spaces in the URL (not allowed in standard URLs unless encoded)
+    if (url.includes(' ')) {
+        return false;
+    }
+    // Check for correct protocol format with double slashes
+    const protocolCheck = /^https?:\/\//i;
+    if (!protocolCheck.test(url)) {
+        return false;
+    }
+    // Check for domain format without proper name
+    // Reject URLs like https://.com
+    const domainCheck = /^https?:\/\/\.[^.]+/i;
+    if (domainCheck.test(url)) {
+        return false;
+    }
+    // Reject URLs ending with a dot like http://example.
+    if (/^https?:\/\/[^/]+\.$/.test(url)) {
+        return false;
+    }
+    try {
+        // Use the URL constructor for validation
+        const parsedUrl = new URL(url);
+        // Only accept http and https protocols
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+            return false;
+        }
+        // Validate hostname - must have at least one dot and valid TLD
+        const hostname = parsedUrl.hostname;
+        // Special case for IP addresses
+        const ipAddressRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+        const ipMatch = hostname.match(ipAddressRegex);
+        if (ipMatch) {
+            // Validate each IP segment is 0-255
+            const validIP = ipMatch.slice(1).every((segment) => {
+                const num = parseInt(segment, 10);
+                return num >= 0 && num <= 255;
+            });
+            return validIP;
+        }
+        // For regular domain names
+        if (!hostname || !hostname.includes('.')) {
+            return false;
+        }
+        // Additional check to ensure hostname has content before the first dot
+        // and doesn't end with a dot
+        if (hostname.startsWith('.') || hostname.includes('..') || hostname.endsWith('.')) {
+            return false;
+        }
+        // Check if TLD is valid (basic check - at least 2 characters after the last dot)
+        const parts = hostname.split('.');
+        const tld = parts[parts.length - 1];
+        if (tld.length < 2) {
+            return false;
+        }
+        return true;
+    }
+    catch (_a) {
+        // URL constructor throws an error for invalid URLs
+        return false;
+    }
+}
+
+// Characters that end a URL candidate: whitespace and the delimiters
+// commonly used to wrap a URL in prose (quotes, angle brackets, parens),
+// which are almost never actually part of the URL itself.
+const urlBoundaryChars = new Set([...' \t\n\r\f\v<>"\'()[]{}']);
+// Trims trailing punctuation (e.g. a sentence-ending period right after the
+// domain) that's part of the surrounding sentence, not the address itself.
+function stripTrailingPunctuation(value) {
+    return stripTrailing(value, trailingPunctuationChars);
+}
+/**
+ * Extracts all email addresses found in a block of text, rather than
+ * validating a single string like `isEmail` does.
+ *
+ * @param text Text to search for email addresses.
+ * @returns An array of the email addresses found, in the order they appear.
+ * @example
+ * extractEmails('Contact us at hello@example.com or support@example.org for help.');
+ * // ['hello@example.com', 'support@example.org']
+ */
+function extractEmails(text) {
+    if (!text)
+        return [];
+    return findEmailMatches(text).map((match) => match.value);
+}
+/**
+ * Finds "http(s)://..."-shaped candidate substrings in text by locating
+ * each scheme occurrence with `indexOf` and scanning forward one character
+ * at a time until a boundary character, without regex backtracking risk.
+ */
+function findUrlCandidates(text) {
+    const candidates = [];
+    let searchFrom = 0;
+    while (searchFrom < text.length) {
+        const httpsAt = text.indexOf('https://', searchFrom);
+        const httpAt = text.indexOf('http://', searchFrom);
+        let start;
+        if (httpsAt === -1)
+            start = httpAt;
+        else if (httpAt === -1)
+            start = httpsAt;
+        else
+            start = Math.min(httpsAt, httpAt);
+        if (start === -1)
+            break;
+        let end = start;
+        while (end < text.length && !urlBoundaryChars.has(text[end]))
+            end++;
+        candidates.push(text.slice(start, end));
+        searchFrom = end > start ? end : start + 1;
+    }
+    return candidates;
+}
+/**
+ * Extracts all URLs found in a block of text, rather than validating a
+ * single string like {@link isUrl} does.
+ *
+ * @param text Text to search for URLs.
+ * @returns An array of the URLs found, in the order they appear.
+ * @example
+ * extractUrls('Check out https://example.com and http://another.example.org/path for details.');
+ * // ['https://example.com', 'http://another.example.org/path']
+ */
+function extractUrls(text) {
+    if (!text)
+        return [];
+    return findUrlCandidates(text).map(stripTrailingPunctuation).filter(isUrl);
+}
+// Characters allowed in a mention/hashtag body: letters, digits, and
+// underscore -- the common convention across Twitter/X, Instagram, and
+// similar platforms.
+const mentionHashtagBodyChars = new Set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_');
+/**
+ * Extracts all @mentions found in a block of text, symbol included.
+ *
+ * A match only starts when the `@` isn't immediately preceded by a
+ * letter/digit/underscore, so an email address's `@` (e.g.
+ * `user@example.com`) is never mistaken for a mention.
+ *
+ * @param text Text to search for mentions.
+ * @returns An array of the mentions found (including the leading `@`), in the order they appear.
+ * @example
+ * extractMentions('Thanks @jordan and @alex_dev for the review!');
+ * // ['@jordan', '@alex_dev']
+ */
+function extractMentions(text) {
+    if (!text)
+        return [];
+    return findPrefixedTokens(text, '@', mentionHashtagBodyChars);
+}
+/**
+ * Extracts all #hashtags found in a block of text, symbol included.
+ *
+ * Uses the same not-preceded-by-a-body-character rule as {@link
+ * extractMentions}, which has a useful side effect: it also keeps a
+ * language name like `C#` from being mistaken for a hashtag.
+ *
+ * @param text Text to search for hashtags.
+ * @returns An array of the hashtags found (including the leading `#`), in the order they appear.
+ * @example
+ * extractHashtags('Just shipped v2! #typescript #opensource #buildinpublic');
+ * // ['#typescript', '#opensource', '#buildinpublic']
+ */
+function extractHashtags(text) {
+    if (!text)
+        return [];
+    return findPrefixedTokens(text, '#', mentionHashtagBodyChars);
+}
+
+// The five characters OWASP's Cross-Site Scripting Prevention Cheat Sheet
+// (Rule #1, HTML element content) requires escaping -- the deliberate,
+// documented scope for v1, not a general-purpose HTML sanitizer. Apostrophe
+// uses the hex numeric reference (&#x27;) to match OWASP's own convention.
+const htmlEscapes = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#x27;',
+};
+// Reverses exactly the escapes above. Also accepts &#39; (the decimal
+// numeric form other tools commonly produce for apostrophe) and &apos;
+// (the HTML5 named form) as equivalent input, even though escapeHtml never
+// outputs either -- this is not a general HTML entity decoder, it only
+// reverses these five characters' escaped forms.
+const htmlUnescapes = {
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&#x27;': "'",
+    '&#39;': "'",
+    '&apos;': "'",
+};
+// Single-pass regexes matched against a lookup-map replacer, rather than
+// chained sequential .replace() calls -- chaining would corrupt already-
+// escaped output (e.g. escaping '<' before '&' would turn the resulting
+// '&lt;' into '&amp;lt;' on the next pass). Matching all target characters
+// in one pass sidesteps that entirely: nothing a replacer inserts is
+// re-scanned by the same pass.
+const escapeRegex = /[&<>"']/g;
+const unescapeRegex = /&amp;|&lt;|&gt;|&quot;|&#x27;|&#39;|&apos;/g;
+/**
+ * Escapes the five HTML special characters (`& < > " '`) in a string, per
+ * OWASP's XSS Prevention Cheat Sheet Rule #1 for HTML element content --
+ * useful for safely rendering user-supplied text without pulling in a
+ * dedicated escaping library.
+ *
+ * This covers HTML element content only, not other injection contexts
+ * (HTML attributes, `<script>` bodies, CSS, URLs) -- those need different,
+ * context-specific encoding that this function doesn't provide. See
+ * {@link unescapeHtml} for the reverse operation.
+ *
+ * @param text Text to escape.
+ * @returns The escaped string, or an error message for invalid input.
+ * @example
+ * escapeHtml('<script>alert("hi")</script>');
+ * // '&lt;script&gt;alert(&quot;hi&quot;)&lt;/script&gt;'
+ */
+function escapeHtml(text) {
+    if (!text)
+        return 'Please provide a valid input text';
+    return text.replace(escapeRegex, (char) => htmlEscapes[char]);
+}
+/**
+ * Reverses exactly the five escapes {@link escapeHtml} produces. This is
+ * not a general-purpose HTML entity decoder -- entities it doesn't produce
+ * (`&nbsp;`, `&copy;`, numeric character references like `&#65;`, etc.)
+ * are left untouched, by design.
+ *
+ * @param text Text to unescape.
+ * @returns The unescaped string, or an error message for invalid input.
+ * @example
+ * unescapeHtml('Tom &amp; Jerry');
+ * // 'Tom & Jerry'
+ */
+function unescapeHtml(text) {
+    if (!text)
+        return 'Please provide a valid input text';
+    return text.replace(unescapeRegex, (entity) => htmlUnescapes[entity]);
+}
+
+/**
+ * Splits text into grapheme clusters (user-perceived characters) using
+ * `Intl.Segmenter` with `granularity: 'grapheme'`.
+ *
+ * Unlike `String.prototype.split('')` (UTF-16 code units) or spread syntax
+ * (code points), this keeps multi-code-unit clusters -- surrogate pairs,
+ * combining marks, ZWJ emoji sequences, skin-tone modifiers -- intact as
+ * single units.
+ *
+ * @param text A string to split.
+ * @returns An array of grapheme clusters.
+ * @example
+ * graphemes('👍🏽'); // ['👍🏽'] -- one cluster, not three code points
+ */
+function graphemes(text) {
+    return Array.from(iterateGraphemes(text));
+}
+/**
+ * Lazily yields the grapheme clusters of text one at a time.
+ *
+ * Unlike {@link graphemes}, this doesn't materialize the full array first --
+ * callers that only need a prefix (e.g. {@link truncate}) can stop iterating
+ * as soon as they have enough, without segmenting the rest of the string.
+ *
+ * @param text A string to split.
+ * @returns An iterable of grapheme clusters.
+ */
+function* iterateGraphemes(text) {
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    for (const segment of segmenter.segment(text)) {
+        yield segment.segment;
+    }
+}
+
+/**
+ * Reverses all grapheme clusters (user-perceived characters) in a string.
+ * @param text A string to reverse.
+ * @returns Reversed string.
+ * @example
+ * reverse('Hello, world!'); // '!dlrow ,olleH'
+ * reverse('👍🏽a'); // 'a👍🏽' -- emoji clusters stay intact
+ */
+function reverse(text) {
+    // Make sure input is valid
+    if (!text)
+        return 'Please provide a valid input text';
+    // Split string into grapheme clusters, reverse all of them and join them back together
+    return graphemes(text).reverse().join('');
+}
+
+/**
+ * Checks whether text reads the same forwards and backwards, ignoring
+ * case, spaces, and punctuation.
+ *
+ * Composes {@link clear} (lowercases, strips punctuation) and
+ * {@link reverse} internally; reversal is grapheme-cluster aware, so
+ * emoji and combining-mark sequences are handled correctly.
+ *
+ * @param text Text to check.
+ * @returns `true` if text is a palindrome under those rules, `false` otherwise.
+ * @example
+ * isPalindrome('A man a plan a canal Panama'); // true
+ * isPalindrome('racecar'); // true
+ * isPalindrome('hello world'); // false
+ */
+function isPalindrome(text) {
+    if (!text)
+        return false;
+    const normalized = clear(text).replace(/\s+/g, '');
+    // Nothing left after stripping case/spaces/punctuation (e.g. text was
+    // punctuation-only, like '!!!') -- an empty string trivially equals its
+    // own reverse.
+    if (!normalized)
+        return true;
+    return normalized === reverse(normalized);
+}
+
+/**
+ * Partially masks a string for display purposes (e.g. showing a masked
+ * email or card number in a UI without exposing the full value).
+ *
+ * If neither `visibleStart` nor `visibleEnd` is given, the first 2
+ * characters are shown by default. Specifying either one turns off that
+ * implicit default for the side you didn't specify — e.g. passing only
+ * `visibleEnd` hides the start entirely, rather than also showing the
+ * first 2 characters.
+ *
+ * @param text Text to mask.
+ * @param options.visibleStart Number of characters to leave visible at the start.
+ * @param options.visibleEnd Number of characters to leave visible at the end.
+ * @param options.maskChar Character(s) to use for masked positions. Default is '*'.
+ * @returns The masked string, or the original string unchanged if the
+ * requested visible portions cover the whole string.
+ * @example
+ * maskText('jordan@example.com'); // 'jo****************'
+ * maskText('4111111111111234', { visibleEnd: 4 }); // '************1234'
+ * maskText('secret-token-value', { visibleStart: 0, visibleEnd: 0, maskChar: '#' }); // '##################'
+ */
+function maskText(text, options = {}) {
+    if (!text)
+        return 'Please provide a valid input text';
+    const { visibleStart, visibleEnd, maskChar = '*' } = options;
+    const visibilitySpecified = visibleStart !== undefined || visibleEnd !== undefined;
+    const start = Math.max(0, visibleStart !== null && visibleStart !== void 0 ? visibleStart : (visibilitySpecified ? 0 : 2));
+    const end = Math.max(0, visibleEnd !== null && visibleEnd !== void 0 ? visibleEnd : 0);
+    // Clamp to the string's length so the visible portions never overlap.
+    const clampedStart = Math.min(start, text.length);
+    const clampedEnd = Math.min(end, text.length - clampedStart);
+    const maskedLength = text.length - clampedStart - clampedEnd;
+    if (maskedLength <= 0)
+        return text;
+    return (text.slice(0, clampedStart) +
+        maskChar.repeat(maskedLength) +
+        text.slice(text.length - clampedEnd));
+}
+
+// Matches Unicode combining diacritical marks (code points 0x0300-0x036F),
+// the marks left behind after NFD-decomposing an accented character (e.g.
+// an accented "e" decomposes into a plain "e" plus a combining mark).
+const combiningMarks = new RegExp(`[${String.fromCharCode(0x0300)}-${String.fromCharCode(0x036f)}]`, 'g');
+/**
+ * Strips accents/diacritics from text, normalizing accented characters to
+ * their plain-ASCII equivalents (e.g. 'é' -> 'e'). Non-Latin scripts pass
+ * through unchanged -- this only affects characters that decompose into a
+ * plain-ASCII base plus a combining mark under Unicode NFD.
+ *
+ * @param text Text to strip diacritics from.
+ * @returns The text with diacritics removed.
+ * @example
+ * removeDiacritics('Café — résumé'); // 'Cafe — resume'
+ */
+function removeDiacritics(text) {
+    if (!text)
+        return 'Please provide a valid input text';
+    return text.normalize('NFD').replace(combiningMarks, '');
+}
+/**
+ * Collapses runs of whitespace (spaces, tabs, newlines) into a single
+ * space, and trims the result.
+ *
+ * @param text Text to normalize.
+ * @returns The text with whitespace runs collapsed to single spaces and
+ * the ends trimmed.
+ * @example
+ * normalizeWhitespace('  Hello   World  \n\n'); // 'Hello World'
+ */
+function normalizeWhitespace(text) {
+    if (!text)
+        return 'Please provide a valid input text';
+    return text.replace(/\s+/g, ' ').trim();
+}
+/**
+ * Normalizes line endings to LF (`\n`), converting both CRLF (`\r\n`) and
+ * lone CR (`\r`) -- useful for comparing or hashing text that may have
+ * come from different platforms (e.g. Windows-authored input).
+ *
+ * @param text Text to normalize.
+ * @returns The text with all line endings converted to `\n`.
+ * @example
+ * normalizeLineEndings('line1\r\nline2\rline3'); // 'line1\nline2\nline3'
+ */
+function normalizeLineEndings(text) {
+    if (!text)
+        return 'Please provide a valid input text';
+    return text.replace(/\r\n|\r/g, '\n');
+}
+
+// Common irregular plurals -- not exhaustive, just frequent enough in
+// everyday English to be worth a lookup rather than silently producing a
+// wrong regular-rule guess (e.g. "childs", "mouses"). Keys are lowercase;
+// the input's leading capitalization is reapplied to the result.
+const irregulars = {
+    child: 'children',
+    person: 'people',
+    man: 'men',
+    woman: 'women',
+    mouse: 'mice',
+    goose: 'geese',
+    tooth: 'teeth',
+    foot: 'feet',
+    ox: 'oxen',
+    cactus: 'cacti',
+    focus: 'foci',
+    fungus: 'fungi',
+    analysis: 'analyses',
+    crisis: 'crises',
+    criterion: 'criteria',
+    phenomenon: 'phenomena',
+    datum: 'data',
+    leaf: 'leaves',
+    knife: 'knives',
+    wife: 'wives',
+    life: 'lives',
+    half: 'halves',
+    calf: 'calves',
+    shelf: 'shelves',
+    wolf: 'wolves',
+    loaf: 'loaves',
+    thief: 'thieves',
+    self: 'selves',
+    elf: 'elves',
+    potato: 'potatoes',
+    tomato: 'tomatoes',
+    hero: 'heroes',
+    echo: 'echoes',
+};
+// Uncountable nouns: the same word is both singular and plural.
+const uncountables = new Set([
+    'sheep',
+    'fish',
+    'deer',
+    'moose',
+    'series',
+    'species',
+    'aircraft',
+    'salmon',
+    'trout',
+    'swine',
+    'bison',
+    'buffalo',
+]);
+const vowels = new Set('aeiouAEIOU');
+// Recapitalizes `target` to match whether `source`'s first character was
+// uppercase -- e.g. matchCase('Child', 'children') -> 'Children'. Does not
+// attempt to preserve all-caps or any casing beyond the first letter.
+function matchCase(source, target) {
+    if (/[A-Z]/.test(source[0]))
+        return target[0].toUpperCase() + target.slice(1);
+    return target;
+}
+function pluralizeRegular(word) {
+    const lower = word.toLowerCase();
+    if (/(?:s|x|z|ch|sh)$/.test(lower))
+        return `${word}es`;
+    if (lower.endsWith('y') && word.length > 1 && !vowels.has(word[word.length - 2])) {
+        return `${word.slice(0, -1)}ies`;
+    }
+    return `${word}s`;
+}
+/**
+ * Returns the plural form of an English word. Useful for UI copy like
+ * `` `${count} ${pluralize('item', count)}` ``.
+ *
+ * This is a documented, honest subset of English pluralization, not a
+ * complete linguistic solution — regular suffix rules (-s, -es, -ies)
+ * plus a maintained list of the most common irregulars and uncountable
+ * nouns. It does not cover every irregular (e.g. Greek-derived "-ch"
+ * words pronounced /k/ like "stomach" → "stomachs", not "stomaches"), or
+ * consonant-doubling irregulars (e.g. "quiz" → "quizzes", not "quizes").
+ *
+ * @param word The singular word to pluralize.
+ * @param count If provided, returns `word` unchanged when `count === 1`;
+ * any other value (including `0`, negative, or omitted) returns the
+ * plural form, matching standard English usage ("0 items", "1 item").
+ * @returns The pluralized (or singular, if `count === 1`) form of `word`.
+ * @example
+ * pluralize('cat'); // 'cats'
+ * pluralize('cat', 1); // 'cat'
+ * pluralize('cat', 5); // 'cats'
+ * pluralize('child'); // 'children'
+ * pluralize('box'); // 'boxes'
+ */
+function pluralize(word, count) {
+    if (!word)
+        return 'Please provide a valid input text';
+    if (count === 1)
+        return word;
+    const lower = word.toLowerCase();
+    if (uncountables.has(lower))
+        return word;
+    const irregular = irregulars[lower];
+    if (irregular)
+        return matchCase(word, irregular);
+    return pluralizeRegular(word);
+}
+
+const alphaChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const numericChars = '0123456789';
+const alphanumericChars = alphaChars + numericChars;
+function resolveCharset(charset) {
+    switch (charset) {
+        case 'alpha':
+            return alphaChars;
+        case 'numeric':
+            return numericChars;
+        case 'alphanumeric':
+            return alphanumericChars;
+        default:
+            // Anything else is treated as a literal, caller-supplied charset
+            // (e.g. 'ABC123') -- picked from as-is, repeats and all, rather than
+            // deduplicated, since a repeated character is the caller's own way
+            // of weighting it more heavily.
+            return charset;
+    }
+}
+// Draws a uniformly-distributed integer in [0, max) using rejection
+// sampling, rather than `randomUint32 % max` -- a plain modulo introduces a
+// slight bias toward the low end of the range whenever `max` doesn't evenly
+// divide 2^32 (true for almost any charset length), which would quietly
+// undercut the "cryptographically secure" claim this function makes. The
+// rejection probability is negligible for any realistic charset (well
+// under 1 in a billion for a 62-character alphanumeric set).
+function randomIndex(max) {
+    const range = 0x100000000; // 2^32
+    const limit = range - (range % max);
+    const buffer = new Uint32Array(1);
+    let value;
+    do {
+        globalThis.crypto.getRandomValues(buffer);
+        value = buffer[0];
+    } while (value >= limit);
+    return value % max;
+}
+/**
+ * Generates a random string of a given length, drawn from a
+ * cryptographically secure source (`globalThis.crypto.getRandomValues`,
+ * the standard Web Crypto API available in both Node and browsers --
+ * nothing here falls back to `Math.random`). Suitable for one-off IDs,
+ * tokens, or test fixtures.
+ *
+ * @param length Number of characters to generate. Returns `''` for a
+ * non-positive or non-integer length.
+ * @param options.charset `'alpha'` (letters only), `'numeric'` (digits
+ * only), `'alphanumeric'` (the default), or any other string, which is
+ * used literally as the pool of characters to draw from (e.g. `'ABC123'`).
+ * @returns A random string of the requested length, or `''` if `length`
+ * or the resolved charset is empty.
+ * @example
+ * randomString(8); // e.g. 'aZ3kD9pQ' (alphanumeric by default)
+ * randomString(6, { charset: 'numeric' }); // e.g. '482913'
+ * randomString(4, { charset: 'ABC123' }); // custom charset, e.g. 'A1C3'
+ */
+function randomString(length, options = {}) {
+    var _a;
+    if (!Number.isInteger(length) || length <= 0)
+        return '';
+    const chars = resolveCharset((_a = options.charset) !== null && _a !== void 0 ? _a : 'alphanumeric');
+    if (chars.length === 0)
+        return '';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += chars[randomIndex(chars.length)];
+    }
+    return result;
+}
+
+// Mask presentation per type -- how much of the match stays visible.
+// Email and phone fall through to maskText's own default (first 2 chars
+// visible); the rest hide everything, except creditCard which keeps the
+// last 4 visible to match the standard "card ending in 1234" convention.
+function maskOptionsFor(type, maskChar) {
+    if (type === 'creditCard')
+        return { visibleStart: 0, visibleEnd: 4, maskChar };
+    if (type === 'apiKey' || type === 'ip' || type === 'jwt') {
+        return { visibleStart: 0, visibleEnd: 0, maskChar };
+    }
+    return { maskChar };
+}
+// Drops any match that overlaps one already kept, in the order matches are
+// given -- so passing them in detector-priority order (as findMatchesByType
+// does) means the higher-priority type wins a same-span overlap (e.g. a
+// digit run that's shaped like both a phone number and a credit card),
+// while purely position-based overlaps elsewhere just resolve to whichever
+// comes first in the text.
+function dropOverlapping(matches) {
+    const sorted = [...matches].sort((a, b) => a.start - b.start);
+    const kept = [];
+    let lastEnd = -1;
+    for (const match of sorted) {
+        if (match.start < lastEnd)
+            continue;
+        kept.push(match);
+        lastEnd = match.end;
+    }
+    return kept;
+}
+/**
+ * Scans free-form text for embedded PII (emails, phone numbers, credit
+ * card numbers, public IPv4 addresses) and secrets (API keys/tokens, JWTs)
+ * and masks each match in place with {@link maskText} — for sanitizing
+ * logs, support tickets, or user-generated content before storage or
+ * display.
+ *
+ * `redact` is best-effort pattern matching, not a complete PII/secret
+ * detector — false negatives are possible, and it shouldn't be relied on
+ * as the only safeguard for sensitive data (pair it with review, not use
+ * it as a substitute for one). Two gaps worth knowing about specifically:
+ *
+ * - **`'ip'` never matches private/loopback/link-local addresses** (`10.x`,
+ *   `172.16-31.x`, `192.168.x`, `127.x`, `169.254.x`), with no option to
+ *   include them in v1. This is deliberate (masking them destroys
+ *   debugging value with no privacy benefit), but means `types: ['ip']`
+ *   does not mean "every IP" — if your threat model needs that, `redact`
+ *   doesn't cover it yet.
+ * - **`'jwt'` requires the token fully intact as one unbroken run** of
+ *   base64url characters and dots. A JWT that's been line-wrapped,
+ *   truncated, or had whitespace injected mid-token — including a
+ *   truncated header+payload with the signature cut off, which can still
+ *   leak real claims data — will not match.
+ *
+ * @param text Text to redact.
+ * @param options.types Which types to redact. Default is `'email'`, `'phone'`, and `'creditCard'`. `'apiKey'`, `'ip'`, and `'jwt'` are opt-in only.
+ * @param options.maskChar Character(s) to use for masked positions, passed through to {@link maskText}. Default is `'*'`.
+ * @returns The text with each detected match masked in place.
+ * @example
+ * redact('Contact me at jordan@example.com or 555-123-4567');
+ * // 'Contact me at jo**************** or 55**********'
+ * redact('Card: 4111 1111 1111 1111', { types: ['creditCard'] });
+ * // 'Card: ***************1111'
+ * redact('Key: AKIAIOSFODNN7EXAMPLE leaked', { types: ['apiKey'] });
+ * // 'Key: ******************** leaked'
+ * redact('Server 10.0.0.5 hit by 203.0.113.42', { types: ['ip'] });
+ * // 'Server 10.0.0.5 hit by ************'
+ */
+function redact(text, options = {}) {
+    if (!text)
+        return 'Please provide a valid input text';
+    const { types = ['email', 'phone', 'creditCard'], maskChar } = options;
+    const matches = dropOverlapping(findMatchesByType(text, types));
+    let result = '';
+    let cursor = 0;
+    for (const match of matches) {
+        result += text.slice(cursor, match.start);
+        result += maskText(match.value, maskOptionsFor(match.type, maskChar));
+        cursor = match.end;
+    }
+    return result + text.slice(cursor);
+}
+
+/**
+ * Runs `text` through a configurable pipeline of existing textConvert
+ * functions -- trimming, whitespace normalization, PII/secret redaction,
+ * and HTML escaping -- for the common "clean this user input/log line
+ * before it's stored or displayed" case.
+ *
+ * This is composition, not new detection logic: every step just calls
+ * the same underlying function ({@link normalizeWhitespace},
+ * {@link redact}, {@link escapeHtml}) that already exists standalone, in
+ * a fixed order regardless of the order options are given in:
+ * `trim` -> `normalizeWhitespace` -> `redactPII` -> `escapeHtml`.
+ *
+ * Redaction deliberately runs on the raw, unescaped text -- so pattern
+ * matching isn't affected by HTML-escaped characters -- and escaping
+ * always runs last, so the final output is safe to render no matter
+ * which other steps ran.
+ *
+ * @param text Text to sanitize.
+ * @param options Which steps to run. Every step defaults to off --
+ * `sanitize(text)` with no options returns `text` unchanged (aside from
+ * the shared invalid-input check).
+ * @returns The sanitized text.
+ * @example
+ * sanitize('  Contact jordan@example.com <b>now</b>  ', {
+ *   trim: true,
+ *   redactPII: true,
+ *   escapeHtml: true,
+ * });
+ * // 'Contact jo**************** &lt;b&gt;now&lt;/b&gt;'
+ */
+function sanitize(text, options = {}) {
+    if (!text)
+        return 'Please provide a valid input text';
+    let result = text;
+    if (options.trim)
+        result = result.trim();
+    if (options.normalizeWhitespace)
+        result = normalizeWhitespace(result);
+    // Whitespace-only input can legitimately reduce to '' at this point
+    // (e.g. sanitize('   ', { trim: true })) -- that's a valid outcome, not
+    // an error, so return it directly rather than letting an empty string
+    // flow into redact/escapeHtml, which would each report it as invalid
+    // input via their own shared sentinel message.
+    if (!result)
+        return '';
+    if (options.redactPII) {
+        result = redact(result, typeof options.redactPII === 'object' ? options.redactPII : undefined);
+    }
+    if (options.escapeHtml)
+        result = escapeHtml(result);
+    return result;
+}
+
+/**
+ * Scans free-form text for the same embedded PII (emails, phone numbers,
+ * credit card numbers, public IPv4 addresses) and secrets (API keys/tokens,
+ * JWTs) that `redact` detects, but returns each match as structured
+ * data instead of masking it in place — for callers that want to inspect,
+ * log, or make their own decision about what was found, rather than have
+ * it masked automatically.
+ *
+ * Reuses exactly the same detection logic `redact` does, so it
+ * carries the same known gaps and false-positive/negative characteristics
+ * — see `redact`'s own documentation for the specifics on `'ip'` and
+ * `'jwt'`. `scan` is best-effort pattern matching, not a complete
+ * PII/secret detector.
+ *
+ * @param text Text to scan.
+ * @param options.types Which types to look for. Default is `'email'`, `'phone'`, and `'creditCard'`. `'apiKey'`, `'ip'`, and `'jwt'` are opt-in only.
+ * @returns Every match found, in the order it appears in the text.
+ * @example
+ * scan('Contact jordan@example.com, card 4111 1111 1111 1111');
+ * // [
+ * //   { type: 'email', value: 'jordan@example.com', start: 8, end: 26 },
+ * //   { type: 'creditCard', value: '4111 1111 1111 1111', start: 33, end: 52 },
+ * // ]
+ */
+function scan(text, options = {}) {
+    if (!text)
+        return [];
+    const { types = ['email', 'phone', 'creditCard'] } = options;
+    return findMatchesByType(text, types).sort((a, b) => a.start - b.start);
+}
+
+/**
+ * Returns an array of characters from the provided string.
+ * @param text A string to spread.
+ * @param clear Whether to clear punctuation from the text. Default is false.
+ * @returns Array of characters or an error message.
+ * @example
+ * spread('Hello, world!'); // ['H', 'e', ...]
+ * spread('Hello, world!', true); // ['H', 'e', ...]
+ */
+function spread(text, clear$1 = false) {
+    // Check if clearing punctuation is necessary.
+    if (clear$1) {
+        text = clear(text);
+    }
+    // Make sure input is valid.
+    if (typeof text !== 'string') {
+        return 'Input text should be a string!';
+    }
+    if (!text.trim()) {
+        return 'Please provide a valid text input';
+    }
+    // Spread string into characters and return them in an array.
+    const characters = [...(text.charAt(0).toLocaleUpperCase() + text.slice(1)).replace(/\s/g, '')];
+    return characters;
+}
+
+const INVALID_NUMBER_MESSAGE$1 = 'Please provide a valid input text';
+// Doubles at or beyond this magnitude are always whole numbers -- IEEE 754
+// can't represent a fractional component that large -- and both
+// Number.prototype.toString and toFixed fall back to scientific notation
+// above it, so this is also the threshold past which digit expansion needs
+// a manual BigInt-based path instead of those.
+const EXPANSION_THRESHOLD = 1e21;
+function withThousandsSeparators(digits) {
+    return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+/**
+ * Formats a number with thousands separators, English/US style (comma
+ * thousands separator, period decimal point) -- not locale-aware, see
+ * numbersToWords's own docs for why.
+ * @param number Number to format.
+ * @param options.decimals Number of decimal places to round/pad to. Omit to preserve the input's natural precision.
+ * @returns The formatted number, or the shared invalid-input message for anything that isn't a finite number.
+ * @example
+ * formatNumber(1234567); // '1,234,567'
+ * formatNumber(1234567.89); // '1,234,567.89'
+ * formatNumber(1234.5, { decimals: 2 }); // '1,234.50'
+ * formatNumber(-1234.5); // '-1,234.5'
+ */
+function formatNumber(number, options = {}) {
+    const { decimals } = options;
+    if (typeof number !== 'number' ||
+        !Number.isFinite(number) ||
+        (decimals !== undefined && (!Number.isInteger(decimals) || decimals < 0))) {
+        return INVALID_NUMBER_MESSAGE$1;
+    }
+    const isNegative = number < 0;
+    const absNumber = Math.abs(number);
+    // Beyond EXPANSION_THRESHOLD, the value is necessarily a whole number (see
+    // above), so there's no real fractional part to round -- any requested
+    // decimals are just zero-padding.
+    const absString = absNumber >= EXPANSION_THRESHOLD
+        ? BigInt(absNumber).toString() + (decimals ? `.${'0'.repeat(decimals)}` : '')
+        : decimals !== undefined
+            ? absNumber.toFixed(decimals)
+            : String(absNumber);
+    const [integerPart, fractionPart] = absString.split('.');
+    const formattedInteger = withThousandsSeparators(integerPart);
+    const formatted = fractionPart !== undefined ? `${formattedInteger}.${fractionPart}` : formattedInteger;
+    return isNegative ? `-${formatted}` : formatted;
+}
+
+// Create digits in words
+const numbers = 'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(' ');
+const tens = 'twenty thirty forty fifty sixty seventy eighty ninety'.split(' ');
+// Shared with ordinalToWords, which builds on numbersToWords's cardinal
+// output and needs to reject the same inputs the same way.
+const MAX_WORDABLE_NUMBER = 100000000;
+function isValidWordableNumber(number) {
+    return Number.isInteger(number) && number >= 0 && number < MAX_WORDABLE_NUMBER;
+}
+const INVALID_NUMBER_MESSAGE = 'Please provide a valid number under 100 million';
+/**
+ * Get any non-negative integer below 100 million converted to words.
+ * @param number Integer input to turn into text.
+ * @returns A string of numbers converted to words, or an error message for invalid input.
+ * @example
+ * numbersToWords(12345); // 'twelve thousand three hundred and forty-five'
+ * numbersToWords(-5); // 'Please provide a valid number under 100 million'
+ */
+function numbersToWords(number) {
+    // Reject anything that isn't a non-negative integer under 100 million,
+    // matching the sentinel-return convention every other function in this
+    // library follows rather than throwing.
+    if (!isValidWordableNumber(number)) {
+        return INVALID_NUMBER_MESSAGE;
+    }
+    // Check if the input is between 0-19
+    if (number < 20)
+        return numbers[number];
+    // Create a digit variable
+    const digit = number % 10;
+    // Check if the input is between 20-99
+    if (number < 100)
+        return tens[~~(number / 10) - 2] + (digit ? '-' + numbers[digit] : '');
+    // Check if the input is between 100 and 999
+    if (number < 1000)
+        return (numbers[~~(number / 100)] +
+            ' hundred' +
+            (number % 100 == 0 ? '' : ' and ' + numbersToWords(number % 100)));
+    // Check if the input is between 1,000 and 999,999
+    if (number < 1000000) {
+        const thousands = ~~(number / 1000);
+        const remainder = number % 1000;
+        return (numbersToWords(thousands) +
+            ' thousand' +
+            (remainder != 0 ? ' ' + numbersToWords(remainder) : ''));
+    }
+    // Handle millions (1,000,000 to 99,999,999)
+    const millions = ~~(number / 1000000);
+    const remainder = number % 1000000;
+    return (numbersToWords(millions) + ' million' + (remainder != 0 ? ' ' + numbersToWords(remainder) : ''));
+}
+
+/**
+ * Get a non-negative integer's ordinal suffix form (e.g. `1` -> `'1st'`).
+ * @param number Non-negative integer to convert.
+ * @returns The number followed by its ordinal suffix, or the shared invalid-input message for anything else.
+ * @example
+ * ordinal(1); // '1st'
+ * ordinal(11); // '11th'
+ * ordinal(21); // '21st'
+ */
+function ordinal(number) {
+    if (!Number.isInteger(number) || number < 0) {
+        return 'Please provide a valid input text';
+    }
+    // English ordinals go by the last *two* digits, not just the last one --
+    // 11/12/13 are always 'th' even though their last digit (1/2/3) would
+    // otherwise map to 'st'/'nd'/'rd'.
+    const lastTwoDigits = number % 100;
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
+        return `${number}th`;
+    }
+    const lastDigit = number % 10;
+    const suffix = lastDigit === 1 ? 'st' : lastDigit === 2 ? 'nd' : lastDigit === 3 ? 'rd' : 'th';
+    return `${number}${suffix}`;
+}
+
+// Irregular ordinal endings that don't follow the plain "+th" rule.
+const irregularOrdinals = {
+    one: 'first',
+    two: 'second',
+    three: 'third',
+    five: 'fifth',
+    eight: 'eighth',
+    nine: 'ninth',
+    twelve: 'twelfth',
+};
+function ordinalizeWord(word) {
+    if (word in irregularOrdinals)
+        return irregularOrdinals[word];
+    // Tens ending in "-y" (twenty, thirty, ...) drop the "y" for "-ieth".
+    if (word.endsWith('y'))
+        return `${word.slice(0, -1)}ieth`;
+    return `${word}th`;
+}
+/**
+ * Get a non-negative integer's ordinal word form (e.g. `21` -> `'twenty-first'`).
+ * @param number Non-negative integer to convert.
+ * @returns The number's ordinal words, or an error message for invalid input.
+ * @example
+ * ordinalToWords(1); // 'first'
+ * ordinalToWords(21); // 'twenty-first'
+ * ordinalToWords(100); // 'one hundredth'
+ */
+function ordinalToWords(number) {
+    if (!isValidWordableNumber(number)) {
+        return INVALID_NUMBER_MESSAGE;
+    }
+    const cardinal = numbersToWords(number);
+    // Only the last word/segment of the cardinal form changes to its ordinal
+    // form -- everything before it stays exactly as numbersToWords produced it.
+    const lastSpaceIndex = cardinal.lastIndexOf(' ');
+    const prefix = lastSpaceIndex === -1 ? '' : cardinal.slice(0, lastSpaceIndex + 1);
+    const lastSegment = lastSpaceIndex === -1 ? cardinal : cardinal.slice(lastSpaceIndex + 1);
+    // A hyphenated segment (e.g. "forty-five") is a tens-ones compound --
+    // only its ones word takes the ordinal form ("forty-fifth", not
+    // "fortieth-five").
+    const hyphenIndex = lastSegment.lastIndexOf('-');
+    if (hyphenIndex === -1) {
+        return prefix + ordinalizeWord(lastSegment);
+    }
+    const tensPart = lastSegment.slice(0, hyphenIndex + 1);
+    const onesPart = lastSegment.slice(hyphenIndex + 1);
+    return prefix + tensPart + ordinalizeWord(onesPart);
+}
+
+// Matches exactly what formatNumber produces (an optional leading '-', an
+// integer part that's either ungrouped digits or correctly comma-grouped
+// in threes, and an optional '.'-prefixed decimal part), plus a couple of
+// deliberate extra leniencies: missing thousands separators are accepted
+// (the ungrouped-digits branch) even though formatNumber always groups
+// numbers >= 1000, since a plain typed-in number is a natural thing to
+// feed this. Incorrectly-grouped separators (e.g. '1,23,456') are
+// rejected -- the grouped branch requires every group after the first to
+// be exactly 3 digits, so a malformed one fails to match at all rather
+// than silently parsing partial digits.
+const PARSE_NUMBER_PATTERN = /^-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/;
+/**
+ * Parses a formatted number string back into a numeric value -- the
+ * reverse of formatNumber.
+ * @param text Text to parse.
+ * @returns The parsed number, or NaN for anything that isn't formatNumber-shaped.
+ * @example
+ * parseNumber('1,234,567'); // 1234567
+ * parseNumber('1,234.56'); // 1234.56
+ * parseNumber('-1,234.5'); // -1234.5
+ */
+function parseNumber(text) {
+    if (typeof text !== 'string')
+        return NaN;
+    const trimmed = text.trim();
+    if (!PARSE_NUMBER_PATTERN.test(trimmed))
+        return NaN;
+    return Number(trimmed.replace(/,/g, ''));
+}
+
+const { values } = regex;
+/**
+ * Convert text into a URL-safe slug: lowercase, punctuation stripped,
+ * separators collapsed to a single "-", and accented characters normalized
+ * to their plain-ASCII equivalents.
+ *
+ * @param text Text to slugify.
+ * @returns A lowercase, hyphen-separated, URL-safe slug.
+ * @example
+ * slugify('Hello, World! 100% Awesome'); // 'hello-world-100-awesome'
+ * slugify('  Multiple   Spaces  '); // 'multiple-spaces'
+ */
+function slugify(text) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    // Decompose accented characters (NFD) and strip the combining marks,
+    // leaving plain-ASCII equivalents.
+    const normalized = removeDiacritics(text);
+    // Split on runs of non-alphanumeric characters and join with "-"
+    const words = normalized.toLowerCase().split(values.nonAlphaNumeric);
+    return words.filter((word) => word.length > 0).join('-');
+}
+
+/**
+ * Shortens text to a maximum length, appending an ellipsis when truncation
+ * happens. `maxLength` includes the ellipsis itself.
+ *
+ * Truncation never splits a grapheme cluster (surrogate pairs, combining
+ * marks, ZWJ emoji sequences) in half: the cut snaps back to the last
+ * cluster boundary that fits the length budget.
+ *
+ * @param text Text to truncate.
+ * @param maxLength Maximum length of the returned string, including the ellipsis.
+ * @param options.ellipsis String appended when the text is truncated. Default is '...'.
+ * @param options.byWords When true, truncates at the last full word instead of cutting mid-word. Default is false.
+ * @returns The truncated string, or the original string unchanged if it's already within maxLength.
+ * @example
+ * truncate('The quick brown fox jumps over the lazy dog', 20); // 'The quick brown f...'
+ * truncate('The quick brown fox jumps over the lazy dog', 20, { byWords: true }); // 'The quick brown...'
+ * truncate('Short text', 20); // 'Short text'
+ */
+function truncate(text, maxLength, options = {}) {
+    // Make sure there's an input
+    if (!text)
+        return 'Please provide a valid input text';
+    // No truncation needed
+    if (text.length <= maxLength)
+        return text;
+    const { ellipsis = '...', byWords = false } = options;
+    // Not enough room for any text alongside the ellipsis — return as much of
+    // the ellipsis as fits.
+    if (maxLength <= ellipsis.length)
+        return ellipsis.slice(0, Math.max(maxLength, 0));
+    const budget = maxLength - ellipsis.length;
+    // Build the cut from grapheme clusters so the boundary never splits a
+    // multi-code-unit cluster (surrogate pairs, combining marks) in half.
+    let cut = '';
+    let width = 0;
+    for (const segment of iterateGraphemes(text)) {
+        if (width + segment.length > budget)
+            break;
+        cut += segment;
+        width += segment.length;
+    }
+    if (byWords) {
+        const lastSpace = cut.lastIndexOf(' ');
+        if (lastSpace > 0)
+            cut = cut.slice(0, lastSpace);
+    }
+    return cut + ellipsis;
+}
+
+exports.camelCase = camelCase;
+exports.capitalize = capitalize;
+exports.clear = clear;
+exports.count = count;
+exports.countSentences = countSentences;
+exports.countWords = countWords;
+exports.detectLanguage = detectLanguage;
+exports.escapeHtml = escapeHtml;
+exports.extractEmails = extractEmails;
+exports.extractHashtags = extractHashtags;
+exports.extractMentions = extractMentions;
+exports.extractUrls = extractUrls;
+exports.formatNumber = formatNumber;
+exports.getTextStats = getTextStats;
+exports.isEmail = isEmail;
+exports.isPalindrome = isPalindrome;
+exports.isPhoneNumber = isPhoneNumber;
+exports.isUrl = isUrl;
+exports.kebabCase = kebabCase;
+exports.maskText = maskText;
+exports.normalizeLineEndings = normalizeLineEndings;
+exports.normalizeWhitespace = normalizeWhitespace;
+exports.numbersToWords = numbersToWords;
+exports.ordinal = ordinal;
+exports.ordinalToWords = ordinalToWords;
+exports.parseNumber = parseNumber;
+exports.pascalCase = pascalCase;
+exports.pluralize = pluralize;
+exports.randomString = randomString;
+exports.redact = redact;
+exports.removeDiacritics = removeDiacritics;
+exports.reverse = reverse;
+exports.sanitize = sanitize;
+exports.scan = scan;
+exports.slugify = slugify;
+exports.snakeCase = snakeCase;
+exports.spread = spread;
+exports.titleCase = titleCase;
+exports.truncate = truncate;
+exports.unescapeHtml = unescapeHtml;
+exports.wordFrequency = wordFrequency;
+//# sourceMappingURL=textConvert.js.map
 
 
 /***/ })
