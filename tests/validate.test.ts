@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Octokit, RepoContext } from '../src/github';
+import { validateBody, type Violation } from '../src/validate';
 
 const { getCollaboratorLogins, issueExists, getRepoTreePaths, getFileLineCount } = vi.hoisted(
   () => ({
@@ -16,8 +17,6 @@ vi.mock('../src/github', () => ({
   getRepoTreePaths,
   getFileLineCount,
 }));
-
-const { validateBody } = await import('../src/validate');
 
 const octokit = {} as Octokit;
 const baseCtx: RepoContext = { owner: 'octocat', repo: 'hello-world', number: 1 };
@@ -159,7 +158,11 @@ describe('#validateBody -- combined', () => {
 
     const violations = await validateBody(octokit, ctx, body);
 
-    expect(violations.map((v) => v.type)).toEqual(['mention', 'issue-reference', 'file-reference']);
+    expect(violations.map((v: Violation) => v.type)).toEqual([
+      'mention',
+      'issue-reference',
+      'file-reference',
+    ]);
   });
 });
 
