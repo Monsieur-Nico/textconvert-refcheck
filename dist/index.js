@@ -32246,13 +32246,15 @@ function findBlobUrlReferences(text) {
         const match = blobUrlPattern.exec(pathPart);
         if (match) {
             const [, owner, repo, ref, path] = match;
+            const anchor = parseLineAnchor(fragment);
             references.push({
                 raw: text.slice(start, end),
                 owner,
                 repo,
                 ref,
                 path,
-                line: parseLineAnchor(fragment),
+                line: anchor?.line ?? null,
+                endLine: anchor?.endLine ?? null,
             });
         }
         searchFrom = end > start ? end : start + 1;
@@ -32271,7 +32273,8 @@ function parseLineAnchor(fragment) {
     const match = lineAnchorPattern.exec(fragment);
     if (!match)
         return null;
-    return Number(match[1]);
+    // match[2], when present, is the whole "-L20" suffix -- strip the "-L".
+    return { line: Number(match[1]), endLine: match[2] ? Number(match[2].slice(2)) : null };
 }
 // Characters that can't appear inside a markdown link's `(...)` target,
 // matching CommonMark's own rule for an unbracketed link destination.
@@ -32301,13 +32304,15 @@ function findRelativeLinkReferences(text) {
         const target = text.slice(openParen + 1, end);
         if (isRelativeFileTarget(target)) {
             const [pathPart, fragment] = splitFragment(target);
+            const anchor = parseLineAnchor(fragment);
             references.push({
                 raw: text.slice(i, end + 1),
                 owner: null,
                 repo: null,
                 ref: null,
                 path: pathPart,
-                line: parseLineAnchor(fragment),
+                line: anchor?.line ?? null,
+                endLine: anchor?.endLine ?? null,
             });
         }
         i = end;
@@ -32876,7 +32881,7 @@ async function validateFileReferences(octokit, ctx, body) {
     if (!ctx.headSha)
         return [];
     const violations = [];
-    const sameRepoRefs = dedupeBy((0, files_1.findFileReferences)(body).filter((ref) => isSameRepo(ctx, ref.owner, ref.repo)), (ref) => `${ref.path}#${ref.line ?? ''}`).slice(0, MAX_CHECKS_PER_BODY);
+    const sameRepoRefs = dedupeBy((0, files_1.findFileReferences)(body).filter((ref) => isSameRepo(ctx, ref.owner, ref.repo)), (ref) => `${ref.path}#${ref.line ?? ''}-${ref.endLine ?? ''}`).slice(0, MAX_CHECKS_PER_BODY);
     if (sameRepoRefs.length === 0)
         return [];
     const treePaths = await (0, github_1.getRepoTreePaths)(octokit, ctx.owner, ctx.repo, ctx.headSha);
@@ -32891,12 +32896,16 @@ async function validateFileReferences(octokit, ctx, body) {
         }
         if (ref.line === null)
             continue;
+        // For a range anchor (#L10-L20), the end line is the one more likely
+        // to run past the file -- checking only the start (ref.line) would
+        // silently accept e.g. #L10-L9999 in a 50-line file.
+        const lastReferencedLine = ref.endLine ?? ref.line;
         const lineCount = await (0, github_1.getFileLineCount)(octokit, ctx.owner, ctx.repo, ctx.headSha, ref.path);
-        if (lineCount !== null && ref.line > lineCount) {
+        if (lineCount !== null && lastReferencedLine > lineCount) {
             violations.push({
                 type: 'file-reference',
                 raw: ref.raw,
-                reason: `${ref.raw} references line ${ref.line}, but the file only has ${lineCount} lines.`,
+                reason: `${ref.raw} references line ${lastReferencedLine}, but the file only has ${lineCount} lines.`,
             });
         }
     }
