@@ -1,7 +1,13 @@
+import * as core from '@actions/core';
 import { describe, expect, it, vi } from 'vitest';
-import { COMMENT_MARKER, formatComment, upsertComment } from '../src/comment';
+import { COMMENT_MARKER, formatComment, postComment, upsertComment } from '../src/comment';
 import type { Octokit, RepoContext } from '../src/github';
 import type { Violation } from '../src/validate';
+
+vi.mock('@actions/core', () => ({
+  warning: vi.fn(),
+  summary: { addRaw: vi.fn().mockReturnThis(), write: vi.fn().mockResolvedValue(undefined) },
+}));
 
 describe('#formatComment', () => {
   it('formats an all-clear message when there are no violations', () => {
@@ -269,5 +275,57 @@ describe('#upsertComment', () => {
       }),
     );
     expect(octokit.rest.issues.createComment).not.toHaveBeenCalled();
+  });
+});
+
+describe('#postComment', () => {
+  const ctx: RepoContext = { owner: 'octocat', repo: 'hello-world', number: 1 };
+
+  function makeOctokit() {
+    return {
+      paginate: vi.fn().mockResolvedValue([]),
+      rest: {
+        issues: {
+          listComments: vi.fn(),
+          updateComment: vi.fn().mockResolvedValue(undefined),
+          createComment: vi.fn(),
+        },
+      },
+    } as unknown as Octokit;
+  }
+
+  it('posts normally when the token has write access', async () => {
+    const octokit = makeOctokit();
+
+    await postComment(octokit, ctx, 'body');
+
+    expect(octokit.rest.issues.createComment).toHaveBeenCalled();
+    expect(core.warning).not.toHaveBeenCalled();
+    expect(core.summary.addRaw).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a job summary and a warning on a 403', async () => {
+    const octokit = makeOctokit();
+    (octokit.rest.issues.createComment as ReturnType<typeof vi.fn>).mockRejectedValue(
+      Object.assign(new Error('Resource not accessible by integration'), { status: 403 }),
+    );
+
+    await postComment(octokit, ctx, 'body');
+
+    expect(core.warning).toHaveBeenCalledWith(
+      expect.stringContaining('github-token lacks write access'),
+    );
+    expect(core.summary.addRaw).toHaveBeenCalledWith('body');
+    expect(core.summary.write).toHaveBeenCalled();
+  });
+
+  it('rethrows a non-403 error', async () => {
+    const octokit = makeOctokit();
+    (octokit.rest.issues.createComment as ReturnType<typeof vi.fn>).mockRejectedValue(
+      Object.assign(new Error('boom'), { status: 500 }),
+    );
+
+    await expect(postComment(octokit, ctx, 'body')).rejects.toThrow('boom');
+    expect(core.summary.addRaw).not.toHaveBeenCalled();
   });
 });

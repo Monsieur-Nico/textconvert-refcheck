@@ -103,6 +103,15 @@ export async function getFileLineCount(
   }
 }
 
+function hasStatus(err: unknown, status: number): boolean {
+  return typeof err === 'object' && err !== null && 'status' in err && err.status === status;
+}
+
 function isNotFound(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && 'status' in err && err.status === 404;
+  return hasStatus(err, 404);
+}
+
+/** True for a 403 from the REST API, e.g. a read-only `GITHUB_TOKEN`. */
+export function isForbidden(err: unknown): boolean {
+  return hasStatus(err, 403);
 }

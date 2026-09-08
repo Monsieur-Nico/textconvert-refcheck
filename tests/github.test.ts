@@ -3,6 +3,7 @@ import {
   getCollaboratorLogins,
   getFileLineCount,
   getRepoTreePaths,
+  isForbidden,
   issueExists,
   type Octokit,
 } from '../src/github';
@@ -22,6 +23,19 @@ function makeOctokit(overrides: Record<string, unknown> = {}): Octokit {
 function notFoundError(): Error & { status: number } {
   return Object.assign(new Error('Not Found'), { status: 404 });
 }
+
+describe('#isForbidden', () => {
+  it('returns true for a 403 error', () => {
+    expect(isForbidden(Object.assign(new Error('nope'), { status: 403 }))).toBe(true);
+  });
+
+  it('returns false for other statuses and non-error values', () => {
+    expect(isForbidden(notFoundError())).toBe(false);
+    expect(isForbidden(new Error('plain'))).toBe(false);
+    expect(isForbidden(null)).toBe(false);
+    expect(isForbidden('nope')).toBe(false);
+  });
+});
 
 describe('#getCollaboratorLogins', () => {
   it('returns collaborator logins, lowercased', async () => {
