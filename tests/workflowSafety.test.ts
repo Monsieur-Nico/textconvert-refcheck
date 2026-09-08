@@ -173,8 +173,26 @@ describe('#guardAgainstPwnRequest', () => {
     expect(octokit.rest.repos.getContent).not.toHaveBeenCalled();
   });
 
-  it('warns and proceeds when the workflow file cannot be fetched or parsed', async () => {
+  it('warns and proceeds when the workflow path is not a file (e.g. a directory)', async () => {
     const octokit = makeOctokit();
+
+    const safe = await guardAgainstPwnRequest(
+      octokit,
+      'pull_request_target',
+      'octocat',
+      'hello-world',
+      forkPr,
+    );
+
+    expect(safe).toBe(true);
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('Could not verify'));
+    expect(core.setFailed).not.toHaveBeenCalled();
+  });
+
+  it('warns and proceeds when fetching the workflow file throws', async () => {
+    const octokit = {
+      rest: { repos: { getContent: vi.fn().mockRejectedValue(new Error('boom')) } },
+    } as unknown as Octokit;
 
     const safe = await guardAgainstPwnRequest(
       octokit,
