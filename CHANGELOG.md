@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.3](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.6.2...v1.6.3) (2026-09-08)
+
+
+### Bug Fixes
+
+* cap violation length; switch this repo's workflow to pull_request_target ([#34](https://github.com/Monsieur-Nico/textconvert-refcheck/issues/34)) ([0ab3b62](https://github.com/Monsieur-Nico/textconvert-refcheck/commit/0ab3b62fb9303add176cf40d31c400b191de462e))
+
 ## [1.6.2](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.6.1...v1.6.2) (2026-09-08)
 
 
