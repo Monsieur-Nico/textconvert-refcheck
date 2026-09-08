@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.6.0...v1.6.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* fail gracefully on a read-only token, guard against pwn requests ([#28](https://github.com/Monsieur-Nico/textconvert-refcheck/issues/28)) ([d002c91](https://github.com/Monsieur-Nico/textconvert-refcheck/commit/d002c9194e529a08c58fa9da54cb7ab9168a60ff))
+
 ## [1.6.0](https://github.com/Monsieur-Nico/textconvert-refcheck/compare/v1.5.0...v1.6.0) (2026-09-05)
 
 
