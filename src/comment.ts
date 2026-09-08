@@ -1,4 +1,5 @@
-import type { Octokit, RepoContext } from './github';
+import * as core from '@actions/core';
+import { isForbidden, type Octokit, type RepoContext } from './github';
 import type { Violation } from './validate';
 
 // Hidden marker used to find this Action's own comment on a later run, so
@@ -225,4 +226,25 @@ export async function upsertComment(
     issue_number: ctx.number,
     body,
   });
+}
+
+/**
+ * Posts `body` via {@link upsertComment}, falling back to a job summary
+ * entry (plus a warning annotation) when the token can't write a comment --
+ * most commonly a `pull_request`-triggered workflow on a fork PR, where
+ * GitHub Actions force-downgrades `GITHUB_TOKEN` to read-only regardless of
+ * the calling workflow's `permissions:` block. The reference-check result
+ * still reaches the run this way instead of being silently lost.
+ */
+export async function postComment(octokit: Octokit, ctx: RepoContext, body: string): Promise<void> {
+  try {
+    await upsertComment(octokit, ctx, body);
+  } catch (err) {
+    if (!isForbidden(err)) throw err;
+
+    core.warning(
+      'Could not post the PR/issue comment: github-token lacks write access (common on pull_request-triggered workflows for fork PRs). Writing the result to the job summary instead.',
+    );
+    await core.summary.addRaw(body).write();
+  }
 }

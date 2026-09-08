@@ -1,9 +1,10 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import { formatComment, upsertComment } from './comment';
+import { formatComment, postComment } from './comment';
 import type { RepoContext } from './github';
 import { validateBody } from './validate';
 import { getActionVersion } from './version';
+import { guardAgainstPwnRequest, type PullRequestRefInfo } from './workflowSafety';
 
 // v1 scope: reacts to the PR/issue body itself (pull_request,
 // pull_request_target, issues events) -- not comment bodies
@@ -16,6 +17,15 @@ async function run(): Promise<void> {
     const octokit = github.getOctokit(token);
     const { context } = github;
     const { owner, repo } = context.repo;
+
+    const safeToRun = await guardAgainstPwnRequest(
+      octokit,
+      context.eventName,
+      owner,
+      repo,
+      context.payload.pull_request as PullRequestRefInfo | undefined,
+    );
+    if (!safeToRun) return;
 
     let number: number | undefined;
     let body: string | null | undefined;
@@ -41,7 +51,7 @@ async function run(): Promise<void> {
     core.info(`Found ${violations.length} dangling reference(s).`);
 
     const version = getActionVersion(process.env.GITHUB_ACTION_PATH);
-    await upsertComment(octokit, ctx, formatComment(violations, version));
+    await postComment(octokit, ctx, formatComment(violations, version));
 
     if (failOnViolation && violations.length > 0) {
       core.setFailed(`Found ${violations.length} dangling reference(s) in the PR/issue body.`);

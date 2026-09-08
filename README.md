@@ -105,8 +105,15 @@ A few things worth knowing about that comment:
 ```yaml
 name: Reference Check
 
+# pull_request_target, not pull_request: a plain pull_request run gets a
+# read-only GITHUB_TOKEN for fork PRs no matter what permissions: below
+# asks for, so the comment-posting call would 403. This is safe here only
+# because this job never checks out or runs the PR's own code -- it just
+# reads the PR/issue body via the API and comments back. Don't add a
+# checkout/build/test step to this job; give those their own job on the
+# plain pull_request trigger instead.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize]
   issues:
     types: [opened, edited]
@@ -125,12 +132,20 @@ jobs:
           fail-on-violation: false
 ```
 
+If your `github-token` can't be given write access (or you'd rather stay on the plain `pull_request` trigger), `refcheck` still runs safely — it just can't post a comment. See [Read-only tokens and fork PRs](#read-only-tokens-and-fork-prs) below.
+
 ### Inputs
 
 | Input               | Description                                                                    | Default               |
 | ------------------- | ------------------------------------------------------------------------------ | --------------------- |
 | `github-token`      | Token used to read the PR/issue body and post the summary comment.             | `${{ github.token }}` |
 | `fail-on-violation` | Fail the check when a dangling reference is found, instead of only commenting. | `false`               |
+
+### Read-only tokens and fork PRs
+
+`pull_request`-triggered workflows always get a read-only `GITHUB_TOKEN` for PRs from forks, regardless of the `permissions:` block — a GitHub Actions platform restriction, not something either this Action or your workflow controls. If `refcheck` is handed a token that can't post a comment, it doesn't fail the job over that: it logs a warning and writes the same result to the run's job summary instead, so the check output isn't lost. `fail-on-violation` still applies normally, based on whether violations were actually found.
+
+`pull_request_target` (used above) avoids that read-only downgrade, but only add it to a job that never checks out or executes the fork's code — that combination is a known vulnerability (a "[pwn request](https://docs.github.com/en/actions/reference/security/securely-using-pull_request_target)"), since the job holds this repo's write-capable token and secrets while running content from an untrusted contributor. As a safety net, `refcheck` checks its own job for exactly that combination when it runs under `pull_request_target` against a fork PR, and hard-fails with a fix-it message if it finds one — but that check is best-effort (it can't see into reusable/called workflows) and is no substitute for keeping this job's steps limited to just this Action.
 
 ## Scope
 
