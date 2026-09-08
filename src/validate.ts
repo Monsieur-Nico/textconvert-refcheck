@@ -1,3 +1,4 @@
+import { truncate } from 'textconvert';
 import { findFileReferences } from './files';
 import {
   getCollaboratorLogins,
@@ -35,6 +36,23 @@ function isSameRepo(ctx: RepoContext, owner: string | null, repo: string | null)
 // characters. 50 is far more than any real PR/issue body needs.
 const MAX_CHECKS_PER_BODY = 50;
 
+// None of findMentionCandidates/findIssueReferences/findFileReferences cap
+// the length of the raw text they match -- a qualified owner/repo#123, a
+// file path, or a blob URL can be arbitrarily long (e.g. a crafted
+// `[x](` + 'a'.repeat(50000) + `)`). raw is embedded twice in the
+// rendered comment (once in a code span, once inline in reason -- see
+// comment.ts), and GitHub caps a comment body at 65536 characters
+// outright, so a handful of maximal matches under MAX_CHECKS_PER_BODY
+// could blow past that limit and fail upsertComment entirely. Truncate
+// once here, upstream of every Violation this module constructs, rather
+// than in each parser -- everything downstream (raw and any reason string
+// built from it) is covered without duplicating the cap in three places.
+const MAX_RAW_LENGTH = 200;
+
+function truncateRaw(raw: string): string {
+  return truncate(raw, MAX_RAW_LENGTH);
+}
+
 function dedupeBy<T>(items: T[], keyOf: (item: T) => string): T[] {
   const seen = new Set<string>();
   const result: T[] = [];
@@ -62,11 +80,14 @@ async function validateMentions(
 
   return mentions
     .filter((mention) => !collaborators.has(mention.slice(1).toLowerCase()))
-    .map((mention) => ({
-      type: 'mention' as const,
-      raw: mention,
-      reason: `${mention} does not match a collaborator on this repository.`,
-    }));
+    .map((mention) => {
+      const raw = truncateRaw(mention);
+      return {
+        type: 'mention' as const,
+        raw,
+        reason: `${raw} does not match a collaborator on this repository.`,
+      };
+    });
 }
 
 async function validateIssueReferences(
@@ -88,10 +109,11 @@ async function validateIssueReferences(
   for (const ref of sameRepoRefs) {
     const exists = await issueExists(octokit, ctx.owner, ctx.repo, ref.number);
     if (!exists) {
+      const raw = truncateRaw(ref.raw);
       violations.push({
         type: 'issue-reference',
-        raw: ref.raw,
-        reason: `${ref.raw} does not refer to an existing issue or pull request in this repository.`,
+        raw,
+        reason: `${raw} does not refer to an existing issue or pull request in this repository.`,
       });
     }
   }
@@ -119,10 +141,11 @@ async function validateFileReferences(
 
   for (const ref of sameRepoRefs) {
     if (!treePaths.has(ref.path)) {
+      const raw = truncateRaw(ref.raw);
       violations.push({
         type: 'file-reference',
-        raw: ref.raw,
-        reason: `${ref.raw} does not refer to a file that exists on this PR's branch.`,
+        raw,
+        reason: `${raw} does not refer to a file that exists on this PR's branch.`,
       });
       continue;
     }
@@ -136,10 +159,11 @@ async function validateFileReferences(
 
     const lineCount = await getFileLineCount(octokit, ctx.owner, ctx.repo, ctx.headSha, ref.path);
     if (lineCount !== null && lastReferencedLine > lineCount) {
+      const raw = truncateRaw(ref.raw);
       violations.push({
         type: 'file-reference',
-        raw: ref.raw,
-        reason: `${ref.raw} references line ${lastReferencedLine}, but the file only has ${lineCount} lines.`,
+        raw,
+        reason: `${raw} references line ${lastReferencedLine}, but the file only has ${lineCount} lines.`,
       });
     }
   }

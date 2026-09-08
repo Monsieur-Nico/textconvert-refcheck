@@ -1,7 +1,14 @@
 name: Reference Check
 
+# pull_request_target, not pull_request: a plain pull_request run gets a
+# read-only GITHUB_TOKEN for fork PRs no matter what permissions: below
+# asks for, so the comment-posting call would 403. This is safe here only
+# because this job never checks out or runs the PR's own code -- it just
+# reads the PR/issue body via the API and comments back. Don't add a
+# checkout/build/test step to this job; give those their own job on the
+# plain pull_request trigger instead.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize]
   issues:
     types: [opened, edited]

@@ -43,6 +43,7 @@
   "dependencies": {
     "@actions/core": "^2.0.3",
     "@actions/github": "^8.0.1",
+    "textconvert": "^2.16.2",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

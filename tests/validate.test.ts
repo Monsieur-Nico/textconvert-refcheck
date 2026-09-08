@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Octokit, RepoContext } from '../src/github';
+import { formatComment } from '../src/comment';
 import { validateBody, type Violation } from '../src/validate';
 
 const { getCollaboratorLogins, issueExists, getRepoTreePaths, getFileLineCount } = vi.hoisted(
@@ -233,5 +234,27 @@ describe('#validateBody -- abuse resistance', () => {
     const violations = await validateBody(octokit, baseCtx, body);
 
     expect(violations).toHaveLength(50);
+  });
+
+  it('caps a crafted maximal-length reference so a single violation cannot embed it whole', async () => {
+    const ctx = { ...baseCtx, headSha: 'abc123' };
+    const body = `[x](${'a'.repeat(50000)})`;
+
+    const violations = await validateBody(octokit, ctx, body);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].raw.length).toBeLessThanOrEqual(200);
+    expect(violations[0].reason.length).toBeLessThan(300);
+  });
+
+  it("keeps the rendered comment within GitHub's 65536-character limit even at MAX_CHECKS_PER_BODY maximal-length violations", async () => {
+    const ctx = { ...baseCtx, headSha: 'abc123' };
+    const body = Array.from({ length: 50 }, (_, i) => `[x](${'a'.repeat(50000)}${i})`).join(' ');
+
+    const violations = await validateBody(octokit, ctx, body);
+    expect(violations).toHaveLength(50);
+
+    const comment = formatComment(violations);
+    expect(comment.length).toBeLessThan(65536);
   });
 });
