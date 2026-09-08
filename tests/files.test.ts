@@ -17,6 +17,7 @@ describe('#findBlobUrlReferences', () => {
         ref: 'main',
         path: 'src/foo.ts',
         line: null,
+        endLine: null,
       },
     ]);
   });
@@ -32,11 +33,12 @@ describe('#findBlobUrlReferences', () => {
         ref: 'main',
         path: 'src/foo.ts',
         line: 10,
+        endLine: null,
       },
     ]);
   });
 
-  it('finds a blob URL with a line range anchor, using the start line', () => {
+  it('finds a blob URL with a line range anchor, capturing both the start and end line', () => {
     expect(
       findBlobUrlReferences('https://github.com/octocat/hello-world/blob/main/src/foo.ts#L10-L20'),
     ).toEqual([
@@ -47,6 +49,7 @@ describe('#findBlobUrlReferences', () => {
         ref: 'main',
         path: 'src/foo.ts',
         line: 10,
+        endLine: 20,
       },
     ]);
   });
@@ -78,6 +81,7 @@ describe('#findRelativeLinkReferences', () => {
         ref: null,
         path: 'src/foo.ts',
         line: null,
+        endLine: null,
       },
     ]);
   });
@@ -91,6 +95,21 @@ describe('#findRelativeLinkReferences', () => {
         ref: null,
         path: 'src/foo.ts',
         line: 5,
+        endLine: null,
+      },
+    ]);
+  });
+
+  it('finds a relative link with a line range anchor, capturing both the start and end line', () => {
+    expect(findRelativeLinkReferences('[here](src/foo.ts#L5-L15)')).toEqual([
+      {
+        raw: '[here](src/foo.ts#L5-L15)',
+        owner: null,
+        repo: null,
+        ref: null,
+        path: 'src/foo.ts',
+        line: 5,
+        endLine: 15,
       },
     ]);
   });
@@ -113,8 +132,24 @@ describe('#findRelativeLinkReferences', () => {
 
   it('finds multiple relative links', () => {
     expect(findRelativeLinkReferences('[a](src/a.ts) and [b](src/b.ts)')).toEqual([
-      { raw: '[a](src/a.ts)', owner: null, repo: null, ref: null, path: 'src/a.ts', line: null },
-      { raw: '[b](src/b.ts)', owner: null, repo: null, ref: null, path: 'src/b.ts', line: null },
+      {
+        raw: '[a](src/a.ts)',
+        owner: null,
+        repo: null,
+        ref: null,
+        path: 'src/a.ts',
+        line: null,
+        endLine: null,
+      },
+      {
+        raw: '[b](src/b.ts)',
+        owner: null,
+        repo: null,
+        ref: null,
+        path: 'src/b.ts',
+        line: null,
+        endLine: null,
+      },
     ]);
   });
 

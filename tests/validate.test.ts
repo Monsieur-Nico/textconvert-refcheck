@@ -143,6 +143,37 @@ describe('#validateBody -- file/line references', () => {
     ]);
   });
 
+  it('flags a line range anchor whose end line is past the end of the file', async () => {
+    const ctx = { ...baseCtx, headSha: 'abc123' };
+    const violations = await validateBody(octokit, ctx, '[see](src/foo.ts#L10-L9999)');
+    expect(violations).toEqual([
+      {
+        type: 'file-reference',
+        raw: '[see](src/foo.ts#L10-L9999)',
+        reason: '[see](src/foo.ts#L10-L9999) references line 9999, but the file only has 20 lines.',
+      },
+    ]);
+  });
+
+  it('does not flag a line range anchor that fits entirely within the file', async () => {
+    const ctx = { ...baseCtx, headSha: 'abc123' };
+    const violations = await validateBody(octokit, ctx, '[see](src/foo.ts#L5-L15)');
+    expect(violations).toEqual([]);
+  });
+
+  it('does not conflate a single-line anchor with a range anchor sharing the same start line', async () => {
+    const ctx = { ...baseCtx, headSha: 'abc123' };
+    const body = '[a](src/foo.ts#L10) and [b](src/foo.ts#L10-L9999)';
+    const violations = await validateBody(octokit, ctx, body);
+    expect(violations).toEqual([
+      {
+        type: 'file-reference',
+        raw: '[b](src/foo.ts#L10-L9999)',
+        reason: '[b](src/foo.ts#L10-L9999) references line 9999, but the file only has 20 lines.',
+      },
+    ]);
+  });
+
   it('skips file validation entirely when there is no PR head SHA (a plain issue)', async () => {
     const violations = await validateBody(octokit, baseCtx, '[see](src/missing.ts)');
     expect(violations).toEqual([]);
