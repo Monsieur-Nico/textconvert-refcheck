@@ -151,7 +151,6 @@ If your `github-token` can't be given write access (or you'd rather stay on the 
 
 - **Same-repo references only.** `owner/repo#123` and blob URLs pointing at a _different_ repository aren't validated — checking them would need API access to a repo that might be private or outside this Action's token permissions.
 - **PR/issue bodies only**, not comment bodies (`issue_comment` events) — a different, later addition if there's demand.
-- A line-range anchor (`#L10-L20`) is checked against its **start** line only.
 
 ## Development
 
